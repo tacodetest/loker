@@ -3,7 +3,7 @@ import { isAdmin } from "@/lib/supabase";
 import { getAllowedSourceUrl, scrapeJobs } from "@/lib/scrape";
 import { saveScrapedJobs } from "@/lib/scrape-store";
 
-export const maxDuration = 330;
+export const maxDuration = 300;
 
 export async function POST(req: Request) {
   if (!isAdmin(req)) return NextResponse.json({ error: "Kunci admin salah" }, { status: 401 });
