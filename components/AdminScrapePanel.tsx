@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type ScrapeSource = {
   url: string;
@@ -34,6 +34,13 @@ type ActiveBatch = {
 };
 
 type ApiRecord = Record<string, unknown>;
+
+type DialogState = {
+  variant: "success" | "error" | "confirm";
+  title: string;
+  message: string;
+  sourceUrl?: string;
+};
 
 function isRecord(value: unknown): value is ApiRecord {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -70,29 +77,64 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
   const [replacementUrls, setReplacementUrls] = useState<Record<string, string>>({});
   const [task, setTask] = useState<BatchTask | null>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
+  const [dialog, setDialog] = useState<DialogState | null>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const batchSectionRef = useRef<HTMLElement>(null);
+  const batchResultsRef = useRef<HTMLDivElement>(null);
+  const taskBatchId = task?.batchId;
+
+  useEffect(() => {
+    if (!taskBatchId) return;
+    const frame = window.requestAnimationFrame(() => {
+      batchSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [taskBatchId]);
+
+  useEffect(() => {
+    if (!dialog) return;
+    const previousFocus = document.activeElement;
+    dialogRef.current?.focus();
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setDialog(null);
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      if (previousFocus instanceof HTMLElement) previousFocus.focus();
+    };
+  }, [dialog]);
+
+  function showError(title: string, reason: unknown, fallback: string) {
+    setDialog({
+      variant: "error",
+      title,
+      message: reason instanceof Error ? reason.message : fallback,
+    });
+  }
 
   async function loadSources() {
-    setError("");
     try {
       const body = await responseJson(await fetch("/api/sources", { cache: "no-store" }));
       setSources(Array.isArray(body.sources) ? body.sources as SavedSource[] : []);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Gagal memuat sumber.");
+      showError("Gagal memuat tautan", reason, "Gagal memuat sumber.");
     }
   }
 
   async function loadActiveBatches() {
-    setError("");
+    batchResultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     try {
       const body = await responseJson(await fetch("/api/scrape", {
         headers: { "x-admin-key": adminKey },
         cache: "no-store",
       }));
       setActiveBatches(Array.isArray(body.batches) ? body.batches as ActiveBatch[] : []);
+      window.requestAnimationFrame(() => {
+        batchResultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Gagal memuat progres batch.");
+      showError("Gagal memuat progres", reason, "Gagal memuat progres batch.");
     }
   }
 
@@ -120,14 +162,34 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
         : current);
 
       if (status === "done" || status === "failed") {
-        setMessage(status === "done" ? "Batch selesai diproses." : "Batch gagal diproses.");
+        const successfulSources = results.filter((source) => source.status === "done");
+        const failedSources = results.filter((source) => source.status === "failed");
+        if (status === "done" && failedSources.length === 0) {
+          const savedCount = successfulSources.reduce((total, source) => total + (source.count ?? 0), 0);
+          setDialog({
+            variant: "success",
+            title: "Proses berhasil",
+            message: `${savedCount} lowongan berhasil disimpan dari ${successfulSources.length} tautan.`,
+          });
+        } else {
+          const details = failedSources.map((source) => `${source.url}: ${source.error || "Gagal diproses."}`);
+          setDialog({
+            variant: "error",
+            title: successfulSources.length > 0 ? "Proses selesai sebagian" : "Proses gagal",
+            message: details.join("\n") || "Batch gagal diproses.",
+          });
+        }
         await loadSources();
         router.refresh();
         setLoading(false);
         return;
       }
     }
-    setError("Pemrosesan masih berjalan. Gunakan tombol Periksa status untuk melanjutkan.");
+    setDialog({
+      variant: "error",
+      title: "Proses masih berjalan",
+      message: "Pemrosesan belum selesai. Gunakan tombol Periksa status untuk melanjutkan.",
+    });
     setLoading(false);
   }
 
@@ -135,8 +197,7 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
     requestedUrls: string[],
     replacements: { from: string; to: string }[] = [],
   ) {
-    setError("");
-    setMessage("");
+    setDialog(null);
     setLoading(true);
     setTask(null);
     try {
@@ -161,7 +222,7 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
       });
       await pollBatch(batchId);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Gagal memulai scrape.");
+      showError("Scrape gagal", reason, "Gagal memulai scrape.");
       setLoading(false);
     }
   }
@@ -170,11 +231,11 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
     event.preventDefault();
     const requestedUrl = sourceUrl.trim();
     if (!adminKey.trim()) {
-      setError("Masukkan kunci admin.");
+      setDialog({ variant: "error", title: "Kunci admin diperlukan", message: "Masukkan kunci admin sebelum menyimpan tautan." });
       return;
     }
     if (!requestedUrl) {
-      setError("Masukkan URL sumber.");
+      setDialog({ variant: "error", title: "URL diperlukan", message: "Masukkan URL sumber JobStreet." });
       return;
     }
     await startBatch([requestedUrl]);
@@ -182,23 +243,41 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
   }
 
   async function refreshSource(sourceUrl: string) {
-    if (!adminKey.trim()) return setError("Masukkan kunci admin.");
+    if (!adminKey.trim()) {
+      setDialog({ variant: "error", title: "Kunci admin diperlukan", message: "Masukkan kunci admin sebelum me-refresh tautan." });
+      return;
+    }
     await startBatch([sourceUrl]);
   }
 
   async function replaceSourceUrl(sourceUrl: string) {
     const newUrl = replacementUrls[sourceUrl]?.trim();
-    if (!adminKey.trim()) return setError("Masukkan kunci admin.");
-    if (!newUrl || newUrl === sourceUrl) return setError("Masukkan URL pengganti yang berbeda.");
+    if (!adminKey.trim()) {
+      setDialog({ variant: "error", title: "Kunci admin diperlukan", message: "Masukkan kunci admin sebelum mengganti URL." });
+      return;
+    }
+    if (!newUrl || newUrl === sourceUrl) {
+      setDialog({ variant: "error", title: "URL pengganti tidak valid", message: "Masukkan URL pengganti yang berbeda dari URL saat ini." });
+      return;
+    }
     await startBatch([newUrl], [{ from: sourceUrl, to: newUrl }]);
   }
 
   async function deleteSource(sourceUrl: string) {
-    if (!adminKey.trim()) return setError("Masukkan kunci admin.");
-    if (!window.confirm(`Hapus sumber ${sourceUrl} dan lowongan yang tidak digunakan sumber lain?`)) return;
+    if (!adminKey.trim()) {
+      setDialog({ variant: "error", title: "Kunci admin diperlukan", message: "Masukkan kunci admin sebelum menghapus tautan." });
+      return;
+    }
+    setDialog({
+      variant: "confirm",
+      title: "Hapus tautan ini?",
+      message: `Tautan ${sourceUrl} akan dihapus. Lowongan yang tidak digunakan sumber lain juga akan dihapus.`,
+      sourceUrl,
+    });
+  }
 
-    setError("");
-    setMessage("");
+  async function confirmDeleteSource(sourceUrl: string) {
+    setDialog(null);
     setLoading(true);
     try {
       const response = await fetch(`/api/sources?url=${encodeURIComponent(sourceUrl)}`, {
@@ -206,11 +285,11 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
         headers: { "x-admin-key": adminKey },
       });
       await responseJson(response);
-      setMessage("Sumber berhasil dihapus.");
+      setDialog({ variant: "success", title: "Tautan berhasil dihapus", message: "Sumber dan lowongan yatim terkait sudah dihapus." });
       await loadSources();
       router.refresh();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Gagal menghapus sumber.");
+      showError("Gagal menghapus tautan", reason, "Gagal menghapus sumber.");
     } finally {
       setLoading(false);
     }
@@ -218,14 +297,19 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
 
   async function resumeBatch() {
     if (!task || !adminKey.trim()) return;
-    setError("");
+    setDialog(null);
     setLoading(true);
-    await pollBatch(task.batchId);
+    batchSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    try {
+      await pollBatch(task.batchId);
+    } catch (reason) {
+      showError("Gagal memeriksa progres", reason, "Gagal memeriksa progres batch.");
+      setLoading(false);
+    }
   }
 
   async function resumeSavedBatch(batch: ActiveBatch) {
-    setError("");
-    setMessage("");
+    setDialog(null);
     setLoading(true);
     setTask({
       batchId: batch.id,
@@ -237,7 +321,12 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
         status: batch.status === "pending" ? "pending" : "scraping",
       })),
     });
-    await pollBatch(batch.id);
+    try {
+      await pollBatch(batch.id);
+    } catch (reason) {
+      showError("Gagal melanjutkan batch", reason, "Gagal memeriksa progres batch.");
+      setLoading(false);
+    }
   }
 
   const batchActive = task?.status === "pending" || task?.status === "scraping";
@@ -245,6 +334,7 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
   const linkedJobCount = sources.reduce((total, source) => total + source.job_count, 0);
 
   return (
+    <>
     <div className="source-manager">
       <section aria-label="Ringkasan sumber" className="source-summary">
         <article className="source-summary-card">
@@ -267,7 +357,6 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
         <section className="content-card upload-card">
           <div className="section-heading">
             <div><h2>Tambah tautan</h2><p>Masukkan satu URL JobStreet, lalu simpan sebelum menambahkan URL berikutnya.</p></div>
-            <span aria-label="Langkah 1" className="step-number">01</span>
           </div>
           <label className="field-label" htmlFor="admin-key">Kunci admin</label>
           <input
@@ -307,6 +396,9 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
               <button className="button button-secondary" onClick={resumeBatch} type="button">Periksa status</button>
             )}
           </div>
+          <p className="source-tool-hint">
+            Gunakan jika proses scrape sebelumnya terputus atau masih berjalan. Tombol ini hanya memuat progres, bukan memulai scrape baru.
+          </p>
         </section>
 
         <section className="content-card source-table-card">
@@ -353,49 +445,112 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
           )}
         </section>
 
-        {(error || message) && (
-          <div className={error ? "notice notice-error source-notice" : "notice notice-success source-notice"} role={error ? "alert" : "status"}>
-            <span aria-hidden="true" className="notice-icon">{error ? "!" : "✓"}</span>
-            <p>{error || message}</p>
-            <button aria-label="Tutup pemberitahuan" className="notice-close" onClick={() => { setError(""); setMessage(""); }} type="button">×</button>
-          </div>
-        )}
+        <div className="batch-results" ref={batchResultsRef}>
+          {activeBatches.length > 0 && (
+            <section aria-label="Batch yang sedang berjalan" className="content-card batch-card">
+              <div className="section-heading"><div><h2>Progres yang berjalan</h2><p>Lanjutkan pemantauan batch yang aktif.</p></div></div>
+              <ul className="batch-list">
+                {activeBatches.map((batch) => (
+                  <li key={batch.id}>
+                    <span>{batch.completed}/{batch.total} · {batch.requested_urls.length} sumber</span>
+                    <button className="button button-secondary" disabled={loading} onClick={() => resumeSavedBatch(batch)} type="button">
+                      Lanjutkan {statusLabel(batch.status)}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
 
-        {activeBatches.length > 0 && (
-          <section aria-label="Batch yang sedang berjalan" className="content-card batch-card">
-            <div className="section-heading"><div><h2>Progres yang berjalan</h2><p>Lanjutkan pemantauan batch yang aktif.</p></div></div>
-            <ul className="batch-list">
-              {activeBatches.map((batch) => (
-                <li key={batch.id}>
-                  <span>{batch.completed}/{batch.total} · {batch.requested_urls.length} sumber</span>
-                  <button className="button button-secondary" disabled={loading} onClick={() => resumeSavedBatch(batch)} type="button">
-                    Lanjutkan {statusLabel(batch.status)}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
-
-        {task && (
-          <section aria-live="polite" className="content-card batch-card">
-            <div className="section-heading">
-              <div><h2>Status batch: {statusLabel(task.status)}</h2><p>{task.completed} dari {task.total} sumber selesai diproses.</p></div>
-            </div>
-            <ul className="batch-list">
-              {task.sources.map((source) => (
-                <li key={source.url}>
-                  <span className="batch-source-url">{source.url}</span>
-                  <strong className={source.status === "failed" ? "batch-failed" : ""}>
-                    {statusLabel(source.status)}{source.status === "done" ? ` · ${source.count ?? 0} lowongan` : ""}
-                  </strong>
-                  {source.error && <p className="batch-error">{source.error}</p>}
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
+          {task && (
+            <section aria-live="polite" className="content-card batch-card batch-status-card" ref={batchSectionRef}>
+              <div className="section-heading">
+                <div>
+                  <h2>Status batch: {statusLabel(task.status)}</h2>
+                  <p>{task.completed} dari {task.total} sumber selesai diproses.</p>
+                  {batchActive && (
+                    <p className="batch-stay-message">
+                      <strong>Mohon tetap di halaman ini, tunggu proses sampai selesai!</strong>
+                    </p>
+                  )}
+                </div>
+              </div>
+              <ul className="batch-list">
+                {task.sources.map((source) => (
+                  <li key={source.url}>
+                    <span className="batch-source-url">{source.url}</span>
+                    <strong className={source.status === "failed" ? "batch-failed" : ""}>
+                      {statusLabel(source.status)}{source.status === "done" ? ` · ${source.count ?? 0} lowongan` : ""}
+                    </strong>
+                    {source.error && <p className="batch-error">{source.error}</p>}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+        </div>
       </div>
     </div>
+    {dialog && (
+      <div
+        className="result-modal-backdrop"
+        onMouseDown={(event) => {
+          if (event.target === event.currentTarget) setDialog(null);
+        }}
+      >
+        <section
+          aria-describedby="result-modal-description"
+          aria-labelledby="result-modal-title"
+          aria-modal="true"
+          className={`result-modal result-modal-${dialog.variant}`}
+          ref={dialogRef}
+          role={dialog.variant === "confirm" ? "alertdialog" : "dialog"}
+          tabIndex={-1}
+        >
+          <button
+            aria-label="Tutup dialog"
+            className="result-modal-close"
+            onClick={() => setDialog(null)}
+            type="button"
+          >
+            ×
+          </button>
+          <span aria-hidden="true" className="result-modal-icon">
+            {dialog.variant === "success" ? "✓" : dialog.variant === "confirm" ? "?" : "!"}
+          </span>
+          <h2 id="result-modal-title">{dialog.title}</h2>
+          <p id="result-modal-description">{dialog.message}</p>
+          <div className="result-modal-actions">
+            {dialog.variant === "confirm" && dialog.sourceUrl ? (
+              <>
+                <button className="button button-secondary" onClick={() => setDialog(null)} type="button">
+                  Batal
+                </button>
+                <button
+                  className="button button-danger"
+                  disabled={loading}
+                  onClick={() => {
+                    if (dialog.sourceUrl) void confirmDeleteSource(dialog.sourceUrl);
+                  }}
+                  type="button"
+                >
+                  Hapus tautan
+                </button>
+              </>
+            ) : (
+              <button
+                autoFocus
+                className={`button ${dialog.variant === "error" ? "button-danger" : "button-primary"}`}
+                onClick={() => setDialog(null)}
+                type="button"
+              >
+                Mengerti
+              </button>
+            )}
+          </div>
+        </section>
+      </div>
+    )}
+    </>
   );
 }
