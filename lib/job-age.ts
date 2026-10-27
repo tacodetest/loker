@@ -1,4 +1,4 @@
-import { parsePostedAt } from "./posted";
+import { parsePostedTime } from "./posted";
 
 const jakartaDate = new Intl.DateTimeFormat("en-US", {
   timeZone: "Asia/Jakarta",
@@ -15,22 +15,19 @@ function calendarDay(value: Date) {
   return Date.UTC(year, month - 1, day);
 }
 
-export function getPostedAge(postedAt: string | null, postedText: string | null) {
-  let parsedDate = postedAt ? new Date(postedAt) : null;
+export function getPostedAge(postedTime: string | null, scrapedAt: string) {
+  const parsedDate = parsePostedTime(postedTime, scrapedAt);
   if (!parsedDate || Number.isNaN(parsedDate.getTime())) {
-    parsedDate = parsePostedAt(postedText);
-  }
-  if (!parsedDate || Number.isNaN(parsedDate.getTime())) {
-    return { label: "Hari tidak diketahui", className: "job-age job-age-unknown" };
+    return { label: postedTime?.trim() || "Hari tidak diketahui", className: "job-age job-age-unknown" };
   }
 
   const days = Math.max(0, Math.floor((calendarDay(new Date()) - calendarDay(parsedDate)) / 86_400_000));
   if (days === 0) {
-    return { label: "Hari ini", className: "job-age job-age-fresh" };
+    return { label: postedTime?.trim() || "Hari ini", className: "job-age job-age-fresh" };
   }
 
   return {
-    label: `${days} hari lalu`,
+    label: postedTime?.trim() || `${days} hari lalu`,
     className: days <= 3 ? "job-age job-age-fresh" : "job-age",
   };
 }

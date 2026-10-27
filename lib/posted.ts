@@ -42,3 +42,13 @@ export function parsePostedAt(text?: string | null, now = new Date()): Date | nu
     : 0;
   return unit ? new Date(now.getTime() - n * unit) : null;
 }
+
+export function parsePostedTime(value: string | null, scrapedAt: string, now = new Date()) {
+  if (!value) return null;
+  const scrapedDate = new Date(scrapedAt);
+  const referenceDate = Number.isNaN(scrapedDate.getTime()) ? now : scrapedDate;
+  const relativeDate = parsePostedAt(value, referenceDate);
+  if (relativeDate) return relativeDate;
+  const absoluteDate = new Date(value);
+  return Number.isNaN(absoluteDate.getTime()) ? null : absoluteDate;
+}

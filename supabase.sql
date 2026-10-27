@@ -10,73 +10,36 @@ create table if not exists jobs (
   location text,
   salary text,
   description text,
-  posted_text text,
-  posted_at timestamptz,
+  posted_time text,
   source_url text,
   site text,
   first_seen_at timestamptz not null default now(),
   last_seen_at timestamptz not null default now()
 );
 alter table jobs add column if not exists scraped_at timestamptz not null default now();
-with relative_postings as (
-  select
-    job_url,
-    scraped_at,
-    (regexp_match(
-      trim(posted_text),
-      '^([0-9]+)[[:space:]]*(menit|minutes?|mins?|m|jam|hours?|hrs?|h|hari|days?|d|minggu|weeks?|w|bulan|months?|mos?|mo)([[:space:]]|$)',
-      'i'
-    )) as relative_parts
-  from jobs
-  where posted_text is not null
-)
-update jobs
-set posted_at = relative_postings.scraped_at - case
-  when lower(relative_postings.relative_parts[2]) in ('menit', 'minute', 'minutes', 'min', 'mins', 'm')
-    then make_interval(secs => relative_postings.relative_parts[1]::integer * 60)
-  when lower(relative_postings.relative_parts[2]) in ('jam', 'hour', 'hours', 'hr', 'hrs', 'h')
-    then make_interval(secs => relative_postings.relative_parts[1]::integer * 3600)
-  when lower(relative_postings.relative_parts[2]) in ('hari', 'day', 'days', 'd')
-    then make_interval(days => relative_postings.relative_parts[1]::integer)
-  when lower(relative_postings.relative_parts[2]) in ('minggu', 'week', 'weeks', 'w')
-    then make_interval(days => relative_postings.relative_parts[1]::integer * 7)
-  when lower(relative_postings.relative_parts[2]) in ('bulan', 'month', 'months', 'mo', 'mos')
-    then make_interval(days => relative_postings.relative_parts[1]::integer * 30)
-  else interval '0 seconds'
+alter table jobs add column if not exists posted_time text;
+drop function if exists public.get_jobs_page(text, text, timestamptz, text, integer);
+drop function if exists public.get_jobs_page(text, text, timestamptz, text, integer, integer, text);
+drop function if exists public.get_jobs_page(text, text, timestamptz, text, integer, text, integer);
+drop index if exists public.jobs_posted_cursor_idx;
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'jobs' and column_name = 'posted_text'
+  ) then
+    execute 'update jobs set posted_time = coalesce(posted_time, posted_text)';
+    execute 'alter table jobs drop column posted_text';
+  end if;
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'jobs' and column_name = 'posted_at'
+  ) then
+    execute 'update jobs set posted_time = coalesce(posted_time, posted_at::text)';
+    execute 'alter table jobs drop column posted_at';
+  end if;
 end
-from relative_postings
-where jobs.job_url = relative_postings.job_url
-  and relative_postings.relative_parts is not null;
-with approximate_postings as (
-  select
-    job_url,
-    scraped_at,
-    regexp_match(
-      trim(posted_text),
-      '^listed (?:more than|over) (one|two|three|four|five|six|seven|[0-9]+) days? ago$',
-      'i'
-    ) as age_parts
-  from jobs
-  where posted_text is not null
-)
-update jobs
-set posted_at = approximate_postings.scraped_at - make_interval(
-  days => case lower(approximate_postings.age_parts[1])
-    when 'one' then 1
-    when 'two' then 2
-    when 'three' then 3
-    when 'four' then 4
-    when 'five' then 5
-    when 'six' then 6
-    when 'seven' then 7
-    else approximate_postings.age_parts[1]::integer
-  end,
-  hours => 12
-)
-from approximate_postings
-where jobs.job_url = approximate_postings.job_url
-  and approximate_postings.age_parts is not null;
-create index if not exists jobs_posted_cursor_idx on jobs (posted_at desc nulls last, job_url asc);
+$$;
 create index if not exists jobs_source_url_idx on jobs (source_url);
 create index if not exists jobs_scraped_at_idx on jobs (scraped_at);
 drop function if exists public.refresh_source_jobs(text, jsonb, timestamptz);
@@ -188,13 +151,13 @@ begin
   on conflict (url) do nothing;
 
   insert into jobs (
-    job_url, title, company, location, salary, description, posted_text,
-    posted_at, source_url, site, last_seen_at, scraped_at
+    job_url, title, company, location, salary, description, posted_time,
+    source_url, site, last_seen_at, scraped_at
   )
   select
     incoming.job_url, incoming.title, incoming.company, incoming.location,
-    incoming.salary, incoming.description, incoming.posted_text,
-    incoming.posted_at, p_source_url, incoming.site,
+    incoming.salary, incoming.description, incoming.posted_time,
+    p_source_url, incoming.site,
     coalesce(incoming.last_seen_at, now()), coalesce(incoming.scraped_at, now())
   from jsonb_to_recordset(p_jobs) as incoming(
     job_url text,
@@ -203,8 +166,7 @@ begin
     location text,
     salary text,
     description text,
-    posted_text text,
-    posted_at timestamptz,
+    posted_time text,
     source_url text,
     site text,
     last_seen_at timestamptz,
@@ -215,8 +177,7 @@ begin
     company = excluded.company,
     location = excluded.location,
     salary = excluded.salary,
-    posted_text = excluded.posted_text,
-    posted_at = excluded.posted_at,
+    posted_time = excluded.posted_time,
     source_url = excluded.source_url,
     site = excluded.site,
     last_seen_at = excluded.last_seen_at,
@@ -302,73 +263,6 @@ as $$
   select public.delete_jobs_by_source(p_source_url);
 $$;
 
-drop function if exists public.get_jobs_page(text, text, timestamptz, text, integer);
-drop function if exists public.get_jobs_page(text, text, timestamptz, text, integer, integer, text);
-drop function if exists public.get_jobs_page(text, text, timestamptz, text, integer, text, integer);
-create or replace function public.get_jobs_page(
-  p_company text default null,
-  p_location text default null,
-  p_cursor_posted_at timestamptz default null,
-  p_cursor_job_url text default null,
-  p_limit integer default 26,
-  p_search text default null,
-  p_days integer default 7
-)
-returns table (
-  job_url text,
-  title text,
-  company text,
-  location text,
-  salary text,
-  posted_text text,
-  posted_at timestamptz,
-  source_url text,
-  scraped_at timestamptz,
-  has_more boolean
-)
-language sql
-stable
-security definer
-set search_path = public, pg_temp
-as $$
-  select
-    jobs.job_url,
-    jobs.title,
-    jobs.company,
-    jobs.location,
-    jobs.salary,
-    jobs.posted_text,
-    jobs.posted_at,
-    jobs.source_url,
-    jobs.scraped_at,
-    count(*) over () > greatest(least(greatest(coalesce(p_limit, 26), 1), 51) - 1, 0) as has_more
-  from public.jobs
-  where coalesce(jobs.site, jobs.source_url) ilike '%jobstreet.%'
-    and (nullif(trim(p_search), '') is null or jobs.title ilike '%' || trim(p_search) || '%')
-    and jobs.posted_at >= now() - make_interval(
-      days => least(greatest(coalesce(p_days, 7), 1), 7)
-    )
-    and jobs.posted_at <= now()
-    and (
-      p_cursor_job_url is null
-      or (
-        p_cursor_posted_at is null
-        and jobs.posted_at is null
-        and jobs.job_url > p_cursor_job_url
-      )
-      or (
-        p_cursor_posted_at is not null
-        and (
-          jobs.posted_at is null
-          or jobs.posted_at < p_cursor_posted_at
-          or (jobs.posted_at = p_cursor_posted_at and jobs.job_url > p_cursor_job_url)
-        )
-      )
-    )
-  order by jobs.posted_at desc nulls last, jobs.job_url asc
-  limit least(greatest(coalesce(p_limit, 26), 1), 51);
-$$;
-
 create table if not exists scrape_batches (
   id uuid primary key,
   firecrawl_batch_id text unique,
@@ -440,11 +334,7 @@ declare
   deleted_count integer;
 begin
   delete from jobs
-  where posted_at < now() - interval '7 days'
-     or (
-       posted_at is null
-       and scraped_at < now() - interval '7 days'
-     );
+  where scraped_at < now() - interval '7 days';
   get diagnostics deleted_count = row_count;
 
   delete from scrape_rate_limits
@@ -464,8 +354,6 @@ revoke all on function public.delete_jobs_by_source(text) from public, anon, aut
 grant execute on function public.delete_jobs_by_source(text) to service_role;
 revoke all on function public.delete_source_with_orphans(text) from public, anon, authenticated;
 grant execute on function public.delete_source_with_orphans(text) to service_role;
-revoke all on function public.get_jobs_page(text, text, timestamptz, text, integer, text, integer) from public, anon, authenticated;
-grant execute on function public.get_jobs_page(text, text, timestamptz, text, integer, text, integer) to service_role;
 revoke all on function public.consume_scrape_rate_limit(text, integer, integer) from public, anon, authenticated;
 grant execute on function public.consume_scrape_rate_limit(text, integer, integer) to service_role;
 revoke all on function public.cleanup_expired_jobs() from public, anon, authenticated;

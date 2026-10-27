@@ -110,7 +110,7 @@ async function JobsPageContent({ searchParams }: { searchParams: SearchParams })
       ) : (
         <ul className="job-list">
           {jobs.map((job) => {
-            const age = getPostedAge(job.posted_at, job.posted_text);
+            const age = getPostedAge(job.posted_time, job.scraped_at);
             return (
               <li className="job-card" key={job.job_url}>
                 <div aria-label={`Diposting ${age.label}`} className={age.className}><strong>{age.label}</strong></div>

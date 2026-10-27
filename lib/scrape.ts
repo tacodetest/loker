@@ -1,6 +1,5 @@
 import { mkdir, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { parsePostedAt } from "./posted";
 
 export type ScrapedJob = {
   job_url: string;
@@ -9,8 +8,7 @@ export type ScrapedJob = {
   location: string | null;
   salary: string | null;
   description: string | null;
-  posted_text: string | null;
-  posted_at: string | null;
+  posted_time: string | null;
   source_url: string;
   site: string;
   last_seen_at: string;
@@ -39,8 +37,7 @@ const FIELD_ALIASES = {
   salary: ["salary", "salary_range"],
   description: ["job_description", "jobDescription", "description", "summary"],
   link: ["job_link", "jobLink", "job_url", "jobUrl", "url", "link", "apply_url"],
-  posted: ["posted_text", "postedText", "posting_date", "date_posted", "posted"],
-  postedAt: ["posted_at", "postedAt"],
+  postedTime: ["posted_time"],
 } as const;
 
 export function getAllowedSourceUrl(value: unknown): URL | null {
@@ -169,12 +166,7 @@ export function parseJobs(response: unknown, sourceUrl: string): ScrapedJob[] {
     if (!link || !getAllowedSourceUrl(link) || !title || seen.has(link)) continue;
     seen.add(link);
 
-    const postedText = readText(job, FIELD_ALIASES.posted);
-    const explicitPostedAt = readText(job, FIELD_ALIASES.postedAt);
-    const parsedPostedAt = parsePostedAt(postedText, now)
-      ?? (explicitPostedAt && !Number.isNaN(Date.parse(explicitPostedAt))
-        ? new Date(explicitPostedAt)
-        : null);
+    const postedTime = readText(job, FIELD_ALIASES.postedTime);
     rows.push({
       job_url: link,
       title,
@@ -182,8 +174,7 @@ export function parseJobs(response: unknown, sourceUrl: string): ScrapedJob[] {
       location: readText(job, FIELD_ALIASES.location),
       salary: readText(job, FIELD_ALIASES.salary),
       description: plainText(readText(job, FIELD_ALIASES.description)),
-      posted_text: postedText,
-      posted_at: parsedPostedAt?.toISOString() ?? null,
+      posted_time: postedTime,
       source_url: sourceUrl,
       site: new URL(link).hostname.replace(/^www\./, ""),
       last_seen_at: now.toISOString(),

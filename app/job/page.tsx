@@ -28,9 +28,7 @@ export default async function JobDetail({
       </header>
       <article className="content-card job-detail-card">
         <p className="job-detail-date">
-          {job.posted_at
-            ? new Intl.DateTimeFormat("id-ID", { dateStyle: "long" }).format(new Date(job.posted_at))
-            : job.posted_text || "Tanggal posting tidak tersedia"}
+          {job.posted_time || "Waktu posting tidak tersedia"}
         </p>
         <h2 className="job-detail-title">{job.title}</h2>
         <p className="job-detail-meta">

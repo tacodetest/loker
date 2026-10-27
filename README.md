@@ -41,7 +41,7 @@ Penggantian URL akan mengambil dan menyimpan hasil URL baru terlebih dahulu. Dat
 
 Daftar publik dirender sebagai Server Component dengan pagination bernomor, urutan tanggal posting terbaru, pencarian judul pekerjaan, dan filter **Hari ini** atau **Semua (7 hari)**. Filter Hari ini mengikuti tanggal kalender Asia/Jakarta; Semua mencakup data tersimpan dalam batas retensi tujuh hari. Nomor halaman dan jumlah hasil menyesuaikan filter. Query Supabase dan halaman detail juga menerapkan batas 7 hari. Perusahaan dan lokasi ditentukan melalui filter di URL sumber JobStreet. Hanya lowongan JobStreet yang ditampilkan. Lowongan tanpa tanggal posting yang bisa dipastikan tidak ditampilkan. Halaman daftar hanya mengambil kolom ringan, dan deskripsi diambil saat detail lowongan dibuka. Data daftar, detail, dan ringkasan dibaca langsung dari Supabase agar perubahan SQL langsung terlihat tanpa menunggu cache.
 
-Endpoint scrape hanya menerima tepat satu URL HTTP/HTTPS pada domain JobStreet per permintaan, memerlukan header `x-admin-key`, dan dibatasi lima permintaan per menit per admin. `FIRECRAWL_API_KEY` dan Supabase service-role key hanya digunakan server-side.
+Endpoint scrape hanya menerima tepat satu URL HTTP/HTTPS pada domain JobStreet per permintaan, memerlukan header `x-admin-key`, dan dibatasi lima permintaan per menit per admin. Firecrawl mengekstrak `job_title`, `company_name`, `location`, `job_description`, dan `posted_time`, serta `job_url` agar detail lowongan dapat dibuka. `posted_time` disimpan sebagai teks persis seperti yang tampil pada kartu; filter dan umur posting dihitung dari teks itu dengan waktu scrape sebagai acuan. `FIRECRAWL_API_KEY` dan Supabase service-role key hanya digunakan server-side.
 
 ## Replay hasil Firecrawl tanpa kredit
 
@@ -51,7 +51,7 @@ Hanya domain JobStreet yang diterima. Pastikan konfigurasi Supabase menunjuk ke 
 
 ## Peremajaan dan retensi lowongan
 
-Jalankan `supabase.sql` di Supabase SQL Editor untuk migrasi `scraped_at`, index, RLS baca-publik/tulis-server, tabel progres/rate-limit, RPC upsert dan pembersihan, serta jadwal `pg_cron`. Jalankan ulang SQL tersebut setelah pembaruan agar RPC `get_jobs_page` hanya menampilkan JobStreet, menerapkan rentang paling lama 7 hari, serta mendukung pencarian judul. Migrasi juga memperbaiki tanggal lama dari label relatif, termasuk format JobStreet seperti “Listed more than six days ago”. Jadwal harian menghapus lowongan dengan `posted_at` lebih dari 7 hari; data tanpa tanggal posting dibersihkan jika tidak di-scrape ulang selama 7 hari. Skema saat ini tidak memiliki `expires_at`.
+Jalankan `supabase.sql` di Supabase SQL Editor untuk migrasi `scraped_at`, index, RLS baca-publik/tulis-server, tabel progres/rate-limit, RPC upsert dan pembersihan, serta jadwal `pg_cron`. Jalankan ulang SQL tersebut setelah pembaruan untuk migrasi otomatis dari `posted_text`/`posted_at` ke satu kolom `posted_time`; nilai `posted_text` lama dipertahankan bila tersedia. Lowongan tanpa waktu posting yang dapat dibaca tidak ditampilkan. Jadwal harian menghapus data yang tidak diperbarui dalam tujuh hari. Skema saat ini tidak memiliki `expires_at`.
 
 Jika scrape gagal atau hasilnya kosong, data lama tetap dipertahankan. Lowongan yang terhubung ke sumber lain tidak ikut dihapus ketika salah satu sumber dihapus. Batch progres disimpan selama tujuh hari. Untuk menjalankan cron, ekstensi `pg_cron` harus tersedia/diizinkan pada proyek Supabase.
 
