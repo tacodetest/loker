@@ -2,28 +2,6 @@ import { mkdir, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { parsePostedAt } from "./posted";
 
-const PROMPT =
-  "Ekstrak semua lowongan kerja dari halaman ini. Jangan menebak atau menyimpulkan tanggal posting; isi posted_text hanya jika tanggal atau teks waktu posting terlihat jelas, selain itu kosongkan. " +
-  "Untuk setiap lowongan berikan: job_title, company_name, location, " +
-  "salary (jika ada), job_description (ringkasan singkat), job_link (URL absolut ke halaman detail lowongan), dan " +
-  "posted_text (teks waktu posting persis seperti tertulis di kartu lowongan, misalnya '3 hari yang lalu' atau '2d ago'; kosongkan jika tidak ada).";
-
-const str = { type: "string" };
-const SCHEMA = {
-  type: "object",
-  properties: {
-    jobs: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: { job_title: str, company_name: str, location: str, salary: str, job_description: str, job_link: str, posted_text: str },
-        required: ["job_title", "job_link"],
-      },
-    },
-  },
-  required: ["jobs"],
-};
-
 export type ScrapedJob = {
   job_url: string;
   title: string;
@@ -36,11 +14,24 @@ export type ScrapedJob = {
   source_url: string;
   site: string;
   last_seen_at: string;
+  scraped_at: string;
 };
 
 type JsonRecord = Record<string, unknown>;
 
 const JOB_ARRAY_KEYS = ["jobs", "job_results", "results", "items", "listings", "vacancies", "positions", "data", "result", "json", "output"];
+const JOBSTREET_DOMAINS = [
+  "jobstreet.com",
+  "jobstreet.com.au",
+  "jobstreet.com.hk",
+  "jobstreet.com.my",
+  "jobstreet.com.ph",
+  "jobstreet.com.sg",
+  "jobstreet.com.vn",
+  "jobstreet.co.id",
+  "jobstreet.co.th",
+  "jobstreet.co.nz",
+];
 const FIELD_ALIASES = {
   title: ["job_title", "jobTitle", "title", "position", "position_title", "name"],
   company: ["company_name", "companyName", "company", "employer"],
@@ -48,7 +39,8 @@ const FIELD_ALIASES = {
   salary: ["salary", "salary_range"],
   description: ["job_description", "jobDescription", "description", "summary"],
   link: ["job_link", "jobLink", "job_url", "jobUrl", "url", "link", "apply_url"],
-  posted: ["posted_text", "postedText", "posting_date", "posted_at", "date_posted", "posted"],
+  posted: ["posted_text", "postedText", "posting_date", "date_posted", "posted"],
+  postedAt: ["posted_at", "postedAt"],
 } as const;
 
 export function getAllowedSourceUrl(value: unknown): URL | null {
@@ -56,7 +48,13 @@ export function getAllowedSourceUrl(value: unknown): URL | null {
   try {
     const url = new URL(value);
     if (!["http:", "https:"].includes(url.protocol)) return null;
-    if (!/(^|\.)(jobstreet\.[a-z.]+|glints\.com)$/.test(url.hostname)) return null;
+    const hostname = url.hostname.toLowerCase();
+    if (url.username || url.password || url.port) return null;
+    const isJobstreet = JOBSTREET_DOMAINS.some(
+      (domain) => hostname === domain || hostname.endsWith(`.${domain}`),
+    );
+    if (!isJobstreet) return null;
+    url.hash = "";
     return url;
   } catch {
     return null;
@@ -67,8 +65,14 @@ function cleanLink(link: string | null, base: string) {
   if (!link) return null;
   try {
     const url = new URL(link, base);
-    url.search = "";
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) return null;
     url.hash = "";
+    for (const key of [...url.searchParams.keys()]) {
+      if (/^utm_/i.test(key) || ["gclid", "fbclid", "referrer"].includes(key.toLowerCase())) {
+        url.searchParams.delete(key);
+      }
+    }
+    url.searchParams.sort();
     return url.toString();
   } catch {
     return null;
@@ -137,6 +141,18 @@ function responseDescription(value: unknown) {
   return `tipe ${type}, key level atas [${keys}], cuplikan: ${serialized.slice(0, 500)}`;
 }
 
+function plainText(value: string | null) {
+  if (!value) return null;
+  return value
+    .replace(/<[^>]*>/g, " ")
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/[`*_>#~-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 2000) || null;
+}
+
 export function parseJobs(response: unknown, sourceUrl: string): ScrapedJob[] {
   const list = findJobArray(response);
   const candidates = list ?? [];
@@ -150,22 +166,28 @@ export function parseJobs(response: unknown, sourceUrl: string): ScrapedJob[] {
 
     const link = cleanLink(readText(job, FIELD_ALIASES.link), sourceUrl);
     const title = readText(job, FIELD_ALIASES.title);
-    if (!link || !title || seen.has(link)) continue;
+    if (!link || !getAllowedSourceUrl(link) || !title || seen.has(link)) continue;
     seen.add(link);
 
     const postedText = readText(job, FIELD_ALIASES.posted);
+    const explicitPostedAt = readText(job, FIELD_ALIASES.postedAt);
+    const parsedPostedAt = parsePostedAt(postedText, now)
+      ?? (explicitPostedAt && !Number.isNaN(Date.parse(explicitPostedAt))
+        ? new Date(explicitPostedAt)
+        : null);
     rows.push({
       job_url: link,
       title,
-      company: readText(job, FIELD_ALIASES.company),
+      company: plainText(readText(job, FIELD_ALIASES.company)),
       location: readText(job, FIELD_ALIASES.location),
       salary: readText(job, FIELD_ALIASES.salary),
-      description: readText(job, FIELD_ALIASES.description),
+      description: plainText(readText(job, FIELD_ALIASES.description)),
       posted_text: postedText,
-      posted_at: parsePostedAt(postedText, now)?.toISOString() ?? null,
+      posted_at: parsedPostedAt?.toISOString() ?? null,
       source_url: sourceUrl,
       site: new URL(link).hostname.replace(/^www\./, ""),
       last_seen_at: now.toISOString(),
+      scraped_at: now.toISOString(),
     });
   }
 
@@ -182,7 +204,7 @@ export function parseJobs(response: unknown, sourceUrl: string): ScrapedJob[] {
   return rows;
 }
 
-async function saveLastExtract(responseText: string) {
+export async function saveLastExtract(responseText: string) {
   if (process.env.NODE_ENV !== "development") return;
   const cacheDirectory = path.join(process.cwd(), ".cache");
   await mkdir(cacheDirectory, { recursive: true });
@@ -196,62 +218,4 @@ export async function clearLastExtractCache() {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
     throw error;
   }
-}
-
-export async function scrapeJobs(url: string): Promise<ScrapedJob[]> {
-  const key = process.env.SGAI_API_KEY;
-  if (!key) throw new Error("SGAI_API_KEY belum diisi");
-
-  const controller = new AbortController();
-  const startedAt = Date.now();
-  const timeout = setTimeout(() => controller.abort(), 300_000);
-  let response: Response;
-  let responseText: string;
-
-  try {
-    response = await fetch("https://v2-api.scrapegraphai.com/api/extract", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "SGAI-APIKEY": key },
-      body: JSON.stringify({ url, prompt: PROMPT, schema: SCHEMA }),
-      cache: "no-store",
-      signal: controller.signal,
-    });
-    responseText = await response.text();
-  } catch (error) {
-    const durationMs = Date.now() - startedAt;
-    console.error(`[scrape] ScrapeGraphAI HTTP status tidak tersedia; durasi ${durationMs}ms`);
-    if (controller.signal.aborted) {
-      throw new Error("ScrapeGraphAI tidak merespons dalam 5 menit; proses dibatalkan. Data sebelumnya tetap tersimpan. Coba lagi nanti.");
-    }
-    throw new Error(`Gagal menghubungi ScrapeGraphAI: ${error instanceof Error ? error.message : String(error)}`);
-  } finally {
-    clearTimeout(timeout);
-  }
-
-  const durationMs = Date.now() - startedAt;
-  let body: unknown;
-  try {
-    body = JSON.parse(responseText);
-  } catch {
-    body = responseText;
-  }
-  const topLevel = asRecord(body);
-  const responseType = Array.isArray(body) ? "array" : body === null ? "null" : typeof body;
-  console.info(
-    `[scrape] ScrapeGraphAI HTTP ${response.status}; durasi ${durationMs}ms; tipe ${responseType}; key level atas [${topLevel ? Object.keys(topLevel).join(", ") : ""}]`,
-  );
-
-  if (!response.ok) {
-    throw new Error(`ScrapeGraphAI HTTP ${response.status}: ${responseText.slice(0, 500)}`);
-  }
-  if (typeof body === "string") {
-    throw new Error(`Respons ScrapeGraphAI bukan JSON yang valid: ${responseText.slice(0, 500)}`);
-  }
-  const rows = parseJobs(body, url);
-  try {
-    await saveLastExtract(responseText);
-  } catch (error) {
-    console.error("[scrape] Gagal menyimpan cache replay lokal; hasil scrape tetap diproses:", error);
-  }
-  return rows;
 }

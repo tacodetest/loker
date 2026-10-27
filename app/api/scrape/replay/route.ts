@@ -16,9 +16,9 @@ export async function POST(req: Request) {
   const target = getAllowedSourceUrl(url);
   if (!target) {
     if (typeof url !== "string" || !url.trim()) {
-      return NextResponse.json({ error: "Tautan sumber JobStreet atau Glints diperlukan untuk replay" }, { status: 400 });
+      return NextResponse.json({ error: "Tautan sumber JobStreet diperlukan untuk replay" }, { status: 400 });
     }
-    return NextResponse.json({ error: "Hanya tautan JobStreet dan Glints yang diterima" }, { status: 400 });
+    return NextResponse.json({ error: "Hanya tautan JobStreet yang diterima" }, { status: 400 });
   }
 
   try {
@@ -29,7 +29,7 @@ export async function POST(req: Request) {
     } catch (error) {
       if (error instanceof Error && "code" in error && error.code === "ENOENT") {
         return NextResponse.json(
-          { error: "Data replay belum tersedia. Letakkan JSON respons ScrapeGraphAI di .cache/last-extract.json." },
+          { error: "Data replay belum tersedia. Jalankan scrape Firecrawl lebih dulu atau letakkan JSON hasil Firecrawl di .cache/last-extract.json." },
           { status: 404 },
         );
       }

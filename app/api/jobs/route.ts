@@ -1,29 +1,19 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/supabase";
+import { getJobsPage } from "@/lib/jobs";
 
 const noStore = { headers: { "Cache-Control": "no-store, max-age=0" } };
 
 export async function GET(req: Request) {
-  const days = Math.min(
-    Math.max(Number(new URL(req.url).searchParams.get("days")) || 3, 1),
-    30,
-  );
-  const cutoff = Date.now() - days * 86400000;
+  const search = new URL(req.url).searchParams;
+  const query = search.get("q")?.trim().slice(0, 100) ?? "";
+  const cursor = search.get("cursor")?.slice(0, 4096) ?? undefined;
+
   try {
-    const { data, error } = await db()
-      .from("jobs")
-      .select("*")
-      .order("posted_at", { ascending: false, nullsFirst: false })
-      .limit(2000);
-    if (error) throw new Error(error.message);
-    const jobs = (data ?? []).filter(
-      (j) => j.posted_at === null || Date.parse(j.posted_at) >= cutoff,
-    );
-    return NextResponse.json({ jobs }, noStore);
-  } catch (e) {
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Gagal memuat" },
-      { status: 500, ...noStore },
-    );
+    const result = await getJobsPage({ search: query, cursor });
+    return NextResponse.json(result, noStore);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Gagal memuat lowongan.";
+    console.error("[jobs] API daftar lowongan gagal:", message);
+    return NextResponse.json({ error: message }, { status: 500, ...noStore });
   }
 }

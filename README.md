@@ -22,29 +22,38 @@ This project uses [`next/font`](https://nextjs.org/docs/app/building-your-applic
 
 ## Konfigurasi layanan
 
-Tambahkan `SGAI_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, dan `ADMIN_KEY` ke `.env.local`. Nilai kunci hanya digunakan oleh server—jangan menaruh ScrapeGraphAI API key di kode browser atau membagikan isi `.env.local`. Menambahkan URL ke daftar tidak memakai kredit. Tombol **Perbarui** pada sumber memanggil ScrapeGraphAI; memfilter atau melihat data yang tersimpan tidak memakai kredit.
+Tambahkan variabel berikut ke `.env.local`:
 
-## Alur penggunaan
+```env
+FIRECRAWL_API_KEY=...
+SUPABASE_URL=...
+SUPABASE_SERVICE_ROLE_KEY=...
+ADMIN_KEY=...
+```
 
-1. Buka menu **Kelola tautan**, masukkan kunci admin, lalu tempel URL JobStreet/Glints—satu URL per baris—dan pilih **Simpan tautan**. Maksimal 100 URL dapat ditambahkan sekaligus. URL hanya disimpan, belum di-scrape.
-2. Pilih **Perbarui** di sumber yang ingin diambil. **Perbarui semua** menjalankan scrape satu per satu dan setiap tautan memakai kredit.
-3. Buka **Semua lowongan** untuk mencari gabungan hasil dari semua sumber. Rentang pencarian dapat diubah hingga 30 hari; kata kunci dipisahkan dengan koma.
-4. Pilih **Hapus** pada sumber untuk mengeluarkannya dari daftar. Lowongan yang masih terhubung ke sumber lain tetap ada; lowongan tanpa sumber lain ikut dibersihkan.
+`FIRECRAWL_API_KEY` hanya digunakan di server; jangan pernah menaruhnya di kode browser atau membagikan isi `.env.local`. `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, dan `ADMIN_KEY` dipakai oleh endpoint penyimpanan dan pengelolaan sumber.
 
-Di menu **Kelola tautan**, **Total lowongan unik** hanya menghitung satu kali setiap lowongan yang muncul di beberapa sumber. Keterangan di bawah angka menunjukkan jumlah semua hubungan lowongan-tautan, sehingga angka itu bisa lebih besar karena lowongan yang sama ada di lebih dari satu tautan.
-Penghapusan juga membersihkan cache replay lokal `.cache/last-extract.json`; daftar lowongan dan sumber dimuat ulang tanpa memakai respons cache.
+## Pengambilan dan pengelolaan lowongan
 
-## Replay hasil extract tanpa kredit
+Admin membuka halaman **Kelola tautan**, memasukkan `ADMIN_KEY`, lalu mengirim hingga 50 URL JobStreet. `POST /api/scrape` memulai satu batch asynchronous Firecrawl; UI melakukan polling status pending/scraping/done/failed dan menyimpan tiap sumber yang berhasil secara terpisah. Firecrawl memakai structured JSON, schema yang dihasilkan dari Zod, `onlyMainContent`, cache 10 menit, dan concurrency maksimum 5. Kegagalan satu URL tidak membatalkan sumber lain.
 
-Saat menjalankan aplikasi dengan `npm run dev`, simpan JSON respons ScrapeGraphAI ke `.cache/last-extract.json`. Buka menu **Kelola tautan**, tempel URL pencarian JobStreet atau Glints dan kunci admin, lalu pilih **Uji dengan data simpanan (tanpa kredit)** pada bagian alat uji lokal. Fitur ini memanggil `/api/scrape/replay`; tidak ada request ke ScrapeGraphAI, tetapi hasilnya tetap di-upsert ke Supabase yang dikonfigurasi.
+Penggantian URL akan mengambil dan menyimpan hasil URL baru terlebih dahulu. Data lama baru dihapus setelah hasil baru valid dan berhasil disimpan. Penghapusan sumber hanya membuang lowongan yatim yang tidak lagi terhubung ke sumber lain. Deskripsi disimpan sebagai teks biasa maksimal 2.000 karakter.
 
-Route replay hanya tersedia di development dan menerima domain JobStreet/Glints. Pastikan konfigurasi Supabase menunjuk ke database yang memang ingin digunakan untuk pengujian.
+Daftar publik dirender sebagai Server Component dengan cursor pagination, urutan tanggal posting terbaru, pencarian judul pekerjaan, dan filter 1, 3, atau maksimal 7 hari; query Supabase dan halaman detail juga menerapkan batas 7 hari. Perusahaan dan lokasi ditentukan melalui filter di URL sumber JobStreet. Hanya lowongan JobStreet yang ditampilkan. Lowongan tanpa tanggal posting yang bisa dipastikan tidak ditampilkan. Halaman daftar hanya mengambil kolom ringan, dan deskripsi diambil saat detail lowongan dibuka. Data daftar, detail, dan ringkasan dibaca langsung dari Supabase agar perubahan SQL langsung terlihat tanpa menunggu cache.
 
-Lowongan tanpa tanggal posting yang terbaca tetap ditampilkan dalam bagian **Tanggal posting tidak tersedia**. Tanggal pertama kali ditemukan ditampilkan sebagai informasi terpisah dan tidak digunakan untuk menentukan rentang tanggal posting.
+Endpoint scrape hanya menerima URL HTTP/HTTPS pada domain JobStreet, memerlukan header `x-admin-key`, dan dibatasi lima batch per menit per admin. `FIRECRAWL_API_KEY` dan Supabase service-role key hanya digunakan server-side.
+
+## Replay hasil Firecrawl tanpa kredit
+
+Saat berjalan dengan `npm run dev`, scrape sukses dengan satu URL disimpan lokal di `.cache/last-extract.json`. Route development `POST /api/scrape/replay` dapat memproses file tersebut tanpa request atau kredit Firecrawl baru. Route ini tetap memerlukan `x-admin-key` dan menyimpan hasil ke Supabase yang dikonfigurasi.
+
+Hanya domain JobStreet yang diterima. Pastikan konfigurasi Supabase menunjuk ke database yang memang ingin digunakan untuk pengujian. Lowongan tanpa tanggal posting yang terbaca tetap memiliki tanggal posting kosong; tanggal pertama kali ditemukan tidak digunakan sebagai pengganti tanggal posting.
 
 ## Peremajaan dan retensi lowongan
 
-Jalankan `supabase.sql` di Supabase SQL Editor setelah memperbarui file tersebut agar fungsi scrape dan hapus sumber tersedia. Saat scrape atau replay berhasil dengan hasil valid, database hanya mengganti relasi lowongan untuk tautan yang diperbarui. Tautan lain tidak ikut berubah. Lowongan yang masih terhubung ke tautan lain tetap disimpan; lowongan yang tidak lagi terkait sumber mana pun dibersihkan. Menghapus sumber juga membersihkan lowongan yang tidak lagi terhubung ke sumber lain. Jika scrape gagal atau hasilnya kosong, data sebelumnya tidak diubah. Fungsi database melakukan perubahan ini dalam satu transaksi.
+Jalankan `supabase.sql` di Supabase SQL Editor untuk migrasi `scraped_at`, index, RLS baca-publik/tulis-server, tabel progres/rate-limit, RPC upsert dan pembersihan, serta jadwal `pg_cron`. Jalankan ulang SQL tersebut setelah pembaruan agar RPC `get_jobs_page` hanya menampilkan JobStreet, menerapkan rentang paling lama 7 hari, serta mendukung pencarian judul. Migrasi juga memperbaiki tanggal lama dari label relatif, termasuk format JobStreet seperti “Listed more than six days ago”. Jadwal harian menghapus lowongan dengan `posted_at` lebih dari 7 hari; data tanpa tanggal posting dibersihkan jika tidak di-scrape ulang selama 7 hari. Skema saat ini tidak memiliki `expires_at`.
+
+Jika scrape gagal atau hasilnya kosong, data lama tetap dipertahankan. Lowongan yang terhubung ke sumber lain tidak ikut dihapus ketika salah satu sumber dihapus. Batch progres disimpan selama tujuh hari. Untuk menjalankan cron, ekstensi `pg_cron` harus tersedia/diizinkan pada proyek Supabase.
 
 ## Learn More
 
