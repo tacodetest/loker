@@ -16,7 +16,10 @@ function calendarDay(value: Date) {
 }
 
 export function getPostedAge(postedAt: string | null, postedText: string | null) {
-  const parsedDate = parsePostedAt(postedText) ?? (postedAt ? new Date(postedAt) : null);
+  let parsedDate = postedAt ? new Date(postedAt) : null;
+  if (!parsedDate || Number.isNaN(parsedDate.getTime())) {
+    parsedDate = parsePostedAt(postedText);
+  }
   if (!parsedDate || Number.isNaN(parsedDate.getTime())) {
     return { label: "Hari tidak diketahui", className: "job-age job-age-unknown" };
   }

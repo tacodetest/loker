@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { io } from "next/cache";
 import { getPostedAge } from "@/lib/job-age";
-import { getJobsPage, JOBS_PAGE_SIZE } from "@/lib/jobs";
+import { getJobsPage, JOBS_PAGE_SIZE, type JobsPeriod } from "@/lib/jobs";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
@@ -10,9 +10,9 @@ function firstValue(value: string | string[] | undefined, maxLength = 100) {
   return (Array.isArray(value) ? value[0] : value)?.trim().slice(0, maxLength) ?? "";
 }
 
-function safeDays(value: string) {
-  const days = Number(value);
-  return Number.isInteger(days) && days > 0 ? Math.min(days, 7) : 7;
+function safePeriod(value: string | undefined, legacyDays: string): JobsPeriod {
+  if (value === "today" || (!value && legacyDays === "1")) return "today";
+  return "all";
 }
 
 function safePage(value: string) {
@@ -57,16 +57,16 @@ async function JobsPageContent({ searchParams }: { searchParams: SearchParams })
   await io();
   const params = await searchParams;
   const search = firstValue(params.q);
-  const days = params.days === undefined ? 7 : safeDays(firstValue(params.days, 4));
+  const period = safePeriod(firstValue(params.period), firstValue(params.days, 4));
   const page = safePage(firstValue(params.page, 10));
-  const { jobs, currentPage, totalJobs, totalPages } = await getJobsPage({ search, days, page });
+  const { jobs, currentPage, totalJobs, totalPages } = await getJobsPage({ search, period, page });
   const firstResult = totalJobs === 0 ? 0 : (currentPage - 1) * JOBS_PAGE_SIZE + 1;
   const lastResult = Math.min(currentPage * JOBS_PAGE_SIZE, totalJobs);
 
   function pageHref(targetPage: number) {
     const pageParams = new URLSearchParams();
     if (search) pageParams.set("q", search);
-    pageParams.set("days", String(days));
+    pageParams.set("period", period);
     pageParams.set("page", String(targetPage));
     return `/jobs?${pageParams.toString()}`;
   }
@@ -77,7 +77,7 @@ async function JobsPageContent({ searchParams }: { searchParams: SearchParams })
         <div>
           <p className="eyebrow">PENCARIAN KERJA</p>
           <h1>Semua lowongan</h1>
-          <p>Cari lowongan dari seluruh tautan tersimpan, maksimal 7 hari terakhir.</p>
+          <p>Lowongan JobStreet yang tersimpan hingga 7 hari terakhir.</p>
         </div>
       </header>
 
@@ -88,11 +88,10 @@ async function JobsPageContent({ searchParams }: { searchParams: SearchParams })
           <input defaultValue={search} name="q" placeholder="Cari berdasarkan judul pekerjaan..." />
         </label>
         <label className="range-select">
-          Rentang
-          <select defaultValue={String(days || 0)} name="days">
-            <option value="1">1 hari</option>
-            <option value="3">3 hari</option>
-            <option value="7">7 hari</option>
+          Tampilkan
+          <select defaultValue={period} name="period">
+            <option value="today">Hari ini</option>
+            <option value="all">Semua (7 hari)</option>
           </select>
         </label>
         <button className="button button-primary filters-submit" type="submit">Cari</button>

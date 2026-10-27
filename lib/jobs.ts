@@ -16,15 +16,25 @@ export type JobCard = {
 export const JOBS_PAGE_SIZE = 25;
 const MAX_POST_AGE_DAYS = 7;
 
+export type JobsPeriod = "today" | "all";
+
 type JobsPageFilters = {
   search?: string;
-  days?: number;
+  period?: JobsPeriod;
   page?: number;
 };
 
-function normalizeDays(days?: number) {
-  if (days === undefined || !Number.isFinite(days) || days < 1) return MAX_POST_AGE_DAYS;
-  return Math.min(Math.max(Math.trunc(days), 1), MAX_POST_AGE_DAYS);
+function getJakartaDayStart(now: Date) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Jakarta",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+  const year = Number(parts.find((part) => part.type === "year")?.value);
+  const month = Number(parts.find((part) => part.type === "month")?.value);
+  const day = Number(parts.find((part) => part.type === "day")?.value);
+  return new Date(Date.UTC(year, month - 1, day) - 7 * 60 * 60 * 1000);
 }
 
 function normalizePage(page?: number) {
@@ -32,11 +42,13 @@ function normalizePage(page?: number) {
   return Math.min(Math.trunc(page), 100_000);
 }
 
-async function queryJobsPage(filters: JobsPageFilters & { days: number; page: number }) {
+async function queryJobsPage(filters: JobsPageFilters & { period: JobsPeriod; page: number }) {
   const start = (filters.page - 1) * JOBS_PAGE_SIZE;
   const end = start + JOBS_PAGE_SIZE - 1;
   const now = new Date();
-  const cutoff = new Date(now.getTime() - filters.days * 24 * 60 * 60 * 1000).toISOString();
+  const cutoff = filters.period === "today"
+    ? getJakartaDayStart(now).toISOString()
+    : new Date(now.getTime() - MAX_POST_AGE_DAYS * 24 * 60 * 60 * 1000).toISOString();
   let query = db()
     .from("jobs")
     .select("job_url, title, company, location, salary, posted_text, posted_at, source_url, scraped_at", { count: "exact" })
@@ -72,14 +84,14 @@ function isWithinDays(postedAt: string | null, days: number) {
 }
 
 export async function getJobsPage(filters: JobsPageFilters) {
-  const days = normalizeDays(filters.days);
+  const period = filters.period === "today" ? "today" : "all";
   const requestedPage = normalizePage(filters.page);
-  const result = await queryJobsPage({ ...filters, days, page: requestedPage });
+  const result = await queryJobsPage({ ...filters, period, page: requestedPage });
   const totalPages = Math.ceil(result.totalJobs / JOBS_PAGE_SIZE);
   const currentPage = totalPages > 0 ? Math.min(requestedPage, totalPages) : 1;
   const pageResult = currentPage === requestedPage
     ? result
-    : await queryJobsPage({ ...filters, days, page: currentPage });
+    : await queryJobsPage({ ...filters, period, page: currentPage });
 
   return {
     ...pageResult,

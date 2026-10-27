@@ -11,16 +11,13 @@ export async function GET(req: Request) {
   const page = parsedPage !== undefined && Number.isInteger(parsedPage) && parsedPage > 0
     ? parsedPage
     : undefined;
-  const rawDays = search.get("days");
-  const parsedDays = rawDays === null ? undefined : Number(rawDays);
-  const days = parsedDays !== undefined &&
-      Number.isInteger(parsedDays) &&
-      [1, 3, 7].includes(parsedDays)
-    ? parsedDays
-    : undefined;
+  const rawPeriod = search.get("period");
+  const period = rawPeriod === "today" || (rawPeriod === null && search.get("days") === "1")
+    ? "today"
+    : "all";
 
   try {
-    const result = await getJobsPage({ search: query, page, days });
+    const result = await getJobsPage({ search: query, page, period });
     return NextResponse.json(result, noStore);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Gagal memuat lowongan.";
