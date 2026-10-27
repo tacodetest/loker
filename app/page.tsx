@@ -4,6 +4,7 @@ import { io } from "next/cache";
 import { getDashboardStats } from "@/lib/dashboard";
 import { getPostedAge } from "@/lib/job-age";
 import { getJobsPage } from "@/lib/jobs";
+import { DashboardSkeleton } from "@/components/PageSkeletons";
 
 function formatDate(value: string | null) {
   if (!value) return "Tanggal tidak diketahui";
@@ -12,14 +13,7 @@ function formatDate(value: string | null) {
 
 export default function Home() {
   return (
-    <Suspense fallback={
-      <main aria-busy="true" className="main-content">
-        <header className="page-title-row">
-          <div><p className="eyebrow">PENCARIAN KERJA</p><h1>Ringkasan</h1></div>
-        </header>
-        <section className="content-card empty-inline">Memuat ringkasan...</section>
-      </main>
-    }>
+    <Suspense fallback={<DashboardSkeleton />}>
       <HomeContent />
     </Suspense>
   );

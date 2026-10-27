@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { io } from "next/cache";
 import { getPostedAge } from "@/lib/job-age";
 import { getJobsPage, JOBS_PAGE_SIZE, type JobsPeriod } from "@/lib/jobs";
+import { JobsSkeleton } from "@/components/PageSkeletons";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
@@ -40,14 +41,7 @@ function formatDate(value: string | null) {
 
 export default function JobsPage({ searchParams }: { searchParams: SearchParams }) {
   return (
-    <Suspense fallback={
-      <main aria-busy="true" className="main-content">
-        <header className="page-title-row">
-          <div><p className="eyebrow">PENCARIAN KERJA</p><h1>Semua lowongan</h1></div>
-        </header>
-        <section className="content-card empty-inline">Memuat daftar lowongan...</section>
-      </main>
-    }>
+    <Suspense fallback={<JobsSkeleton />}>
       <JobsPageContent searchParams={searchParams} />
     </Suspense>
   );

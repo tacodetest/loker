@@ -112,9 +112,17 @@ export async function getJobsPage(filters: JobsPageFilters) {
       (!search || job.title.toLocaleLowerCase("id-ID").includes(search)),
     )
     .sort((a, b) => {
-      const aDate = (getPostedDate(a) ?? new Date(a.scraped_at)).getTime();
-      const bDate = (getPostedDate(b) ?? new Date(b.scraped_at)).getTime();
-      return bDate - aDate || a.job_url.localeCompare(b.job_url);
+      const aPostedDate = getPostedDate(a);
+      const bPostedDate = getPostedDate(b);
+      if (aPostedDate && !bPostedDate) return -1;
+      if (!aPostedDate && bPostedDate) return 1;
+      if (aPostedDate && bPostedDate) {
+        const byPostedDate = bPostedDate.getTime() - aPostedDate.getTime();
+        if (byPostedDate !== 0) return byPostedDate;
+      }
+
+      const byScrapedDate = Date.parse(b.scraped_at) - Date.parse(a.scraped_at);
+      return byScrapedDate || a.job_url.localeCompare(b.job_url);
     });
 
   const totalJobs = matchingJobs.length;

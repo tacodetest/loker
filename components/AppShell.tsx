@@ -32,16 +32,15 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         />
       )}
       <aside className={`app-sidebar${sidebarOpen ? " app-sidebar-open" : ""}`}>
-        <Link aria-label="Loker, halaman ringkasan" className="brand" href="/" onClick={() => setSidebarOpen(false)}>
-          <span className="brand-mark">L</span>
+        <Link aria-label="Altaf Resume Jobstreet, halaman ringkasan" className="brand" href="/" onClick={() => setSidebarOpen(false)}>
           <span>
-            <strong>Loker</strong>
+            <strong>Altaf Resume Jobstreet</strong>
             <small>PERSONAL JOB HUB</small>
           </span>
         </Link>
 
         <nav aria-label="Navigasi utama" className="side-nav">
-          <p className="nav-caption">RUANG KERJA</p>
+          <p className="nav-caption">DAFTAR MENU</p>
           {navigation.map((item) => (
             <Link
               aria-current={activePath(pathname, item.href) ? "page" : undefined}
@@ -62,13 +61,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           <p>Cari lowongan berdasarkan judul pekerjaan dan gunakan tautan JobStreet dengan filter yang sesuai.</p>
         </aside>
 
-        <div className="sidebar-profile">
-          <span aria-hidden="true" className="profile-avatar">K</span>
-          <span>
-            <strong>Ruang pribadimu</strong>
-            <small>Lowongan tersimpan</small>
-          </span>
-        </div>
       </aside>
 
       <div className="workspace">

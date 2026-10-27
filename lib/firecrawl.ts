@@ -6,6 +6,7 @@ export const FirecrawlJobSchema = z.object({
   job_title: z.string().trim().min(1),
   company_name: z.string().nullable().optional(),
   location: z.string().nullable().optional(),
+  salary: z.string().nullable(),
   job_description: z.string().nullable().optional(),
   posted_time: z.string().nullable(),
 });
@@ -113,7 +114,7 @@ export async function createFirecrawlBatch(urls: string[]) {
           type: "json",
           schema: firecrawlSchema,
           prompt:
-            "Ekstrak semua lowongan kerja yang tampil pada halaman hasil pencarian. Untuk setiap lowongan, posted_time WAJIB diisi dengan teks persis dari label umur/tanggal yang tercetak di bagian paling bawah kartu lowongan, misalnya '1 hari yang lalu', '6 jam yang lalu', '10 jam yang lalu', atau '5 days ago'. Periksa setiap kartu satu per satu; jangan melewatkan label yang terlihat di bagian bawah. Hanya isi posted_time null jika label memang tidak ada atau tidak terbaca pada kartu itu. Jangan mengambil tanggal dari halaman detail, metadata halaman, atau kartu lowongan lain; jangan mengubah, menghitung ulang, atau menebak waktunya. Keluarkan juga job_title, company_name, location, dan job_description. Keluarkan job_url sebagai URL absolut ke halaman detail. Isi teks biasa dan jangan menebak data lainnya.",
+            "Ekstrak semua lowongan kerja yang tampil pada halaman hasil pencarian. Untuk setiap lowongan, posted_time WAJIB diisi dengan teks persis dari label umur/tanggal yang tercetak di bagian paling bawah kartu lowongan, misalnya '1 hari yang lalu', '6 jam yang lalu', '10 jam yang lalu', atau '5 days ago'. Periksa setiap kartu satu per satu; jangan melewatkan label yang terlihat di bagian bawah. Hanya isi posted_time null jika label memang tidak ada atau tidak terbaca pada kartu itu. Isi salary dengan teks gaji/rentang gaji persis yang terlihat di kartu, misalnya 'Rp 4.200.000 – Rp 5.200.000 per month'; isi null hanya jika kartu tidak menampilkan gaji. Jangan menebak atau menghitung gaji. Jangan mengambil posted_time dari halaman detail, metadata halaman, atau kartu lowongan lain; jangan mengubah atau menghitung ulang waktunya. Keluarkan juga job_title, company_name, location, dan job_description. Keluarkan job_url sebagai URL absolut ke halaman detail. Isi teks biasa dan jangan menebak data lainnya.",
         },
       ],
       onlyMainContent: true,
@@ -161,6 +162,7 @@ function readExtraction(item: JsonRecord) {
         ...job.data,
         company_name: job.data.company_name ?? null,
         location: job.data.location ?? null,
+        salary: job.data.salary ?? null,
         job_description: job.data.job_description ?? null,
         posted_time: job.data.posted_time ?? null,
       });

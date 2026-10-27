@@ -3,7 +3,7 @@ import AppShell from "@/components/AppShell";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Loker · Personal Job Hub",
+  title: "Altaf Resume Jobstreet · Personal Job Hub",
   description: "Lowongan terbaru dari JobStreet",
 };
 
