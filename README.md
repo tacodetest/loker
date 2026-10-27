@@ -32,6 +32,7 @@ Tambahkan `SGAI_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, dan `ADMI
 4. Pilih **Hapus** pada sumber untuk mengeluarkannya dari daftar. Lowongan yang masih terhubung ke sumber lain tetap ada; lowongan tanpa sumber lain ikut dibersihkan.
 
 Di menu **Kelola tautan**, **Total lowongan unik** hanya menghitung satu kali setiap lowongan yang muncul di beberapa sumber. Keterangan di bawah angka menunjukkan jumlah semua hubungan lowongan-tautan, sehingga angka itu bisa lebih besar karena lowongan yang sama ada di lebih dari satu tautan.
+Penghapusan juga membersihkan cache replay lokal `.cache/last-extract.json`; daftar lowongan dan sumber dimuat ulang tanpa memakai respons cache.
 
 ## Replay hasil extract tanpa kredit
 

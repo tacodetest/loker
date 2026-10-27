@@ -81,8 +81,8 @@ export default function Home() {
 
   const load = useCallback(async () => {
     const [jobsResponse, sourcesResponse] = await Promise.all([
-      fetch(`/api/jobs?days=${days}`),
-      fetch("/api/sources"),
+      fetch(`/api/jobs?days=${days}`, { cache: "no-store" }),
+      fetch("/api/sources", { cache: "no-store" }),
     ]);
     const [jobsData, sourcesData] = await Promise.all([
       jobsResponse.json(),
@@ -109,7 +109,7 @@ export default function Home() {
       .finally(() => setLoading(false));
   }, [load]);
 
-  async function scrape(target: string, replay = false): Promise<boolean> {
+  async function scrape(target: string, replay = false): Promise<{ ok: boolean; error?: string }> {
     setBusy(target);
     setNotice({
       ok: true,
@@ -133,13 +133,13 @@ export default function Home() {
         const detail = error instanceof Error ? error.message : "Gagal memuat ulang daftar.";
         setNotice({ ok: false, text: `${successText} Namun daftar belum bisa dimuat ulang: ${detail}` });
       }
-      return true;
+      return { ok: true };
     } catch (error) {
       const text = error instanceof TypeError
         ? "Koneksi ke server terputus. Data lama tetap tersimpan; periksa terminal server untuk detail."
         : error instanceof Error ? error.message : "Gagal mengambil lowongan.";
       setNotice({ ok: false, text: `Gagal memperbarui ${shortUrl(target)}: ${text}` });
-      return false;
+      return { ok: false, error: text };
     } finally {
       setBusy(null);
     }
@@ -178,9 +178,12 @@ export default function Home() {
     if (!window.confirm(`Perbarui ${sources.length} tautan? Setiap tautan akan memakai kredit ScrapeGraphAI.`)) return;
     setRefreshingAll(true);
     let succeeded = 0;
+    const failures: string[] = [];
     try {
       for (const source of sources) {
-        if (await scrape(source.url)) succeeded += 1;
+        const result = await scrape(source.url);
+        if (result.ok) succeeded += 1;
+        else failures.push(`${shortUrl(source.url)}: ${result.error ?? "Gagal tanpa keterangan."}`);
       }
     } finally {
       setRefreshingAll(false);
@@ -188,7 +191,9 @@ export default function Home() {
     if (succeeded === sources.length) {
       setNotice({ ok: true, text: `Semua ${succeeded} tautan berhasil diperbarui.` });
     } else {
-      setNotice({ ok: false, text: `${succeeded} dari ${sources.length} tautan berhasil. Pesan terakhir menunjukkan kegagalan yang perlu diperiksa.` });
+      const details = failures.slice(0, 3).join(" | ");
+      const remaining = failures.length > 3 ? ` | dan ${failures.length - 3} kegagalan lainnya` : "";
+      setNotice({ ok: false, text: `${succeeded} dari ${sources.length} tautan berhasil. ${details}${remaining}` });
     }
   }
 

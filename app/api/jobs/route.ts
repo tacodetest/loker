@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/supabase";
 
+const noStore = { headers: { "Cache-Control": "no-store, max-age=0" } };
+
 export async function GET(req: Request) {
   const days = Math.min(
     Math.max(Number(new URL(req.url).searchParams.get("days")) || 3, 1),
@@ -17,11 +19,11 @@ export async function GET(req: Request) {
     const jobs = (data ?? []).filter(
       (j) => j.posted_at === null || Date.parse(j.posted_at) >= cutoff,
     );
-    return NextResponse.json({ jobs });
+    return NextResponse.json({ jobs }, noStore);
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Gagal memuat" },
-      { status: 500 },
+      { status: 500, ...noStore },
     );
   }
 }

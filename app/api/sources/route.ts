@@ -1,6 +1,8 @@
 import { connection, NextResponse } from "next/server";
 import { db, isAdmin } from "@/lib/supabase";
-import { getAllowedSourceUrl } from "@/lib/scrape";
+import { clearLastExtractCache, getAllowedSourceUrl } from "@/lib/scrape";
+
+const noStore = { headers: { "Cache-Control": "no-store, max-age=0" } };
 
 export async function GET() {
   await connection(); // pastikan selalu dijalankan saat ada request, tidak di-cache
@@ -35,11 +37,11 @@ export async function GET() {
       })),
       total_job_count: linkedJobs.size,
       total_source_job_count: totalSourceJobs,
-    });
+    }, noStore);
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Gagal memuat" },
-      { status: 500 },
+      { status: 500, ...noStore },
     );
   }
 }
@@ -109,6 +111,7 @@ export async function DELETE(req: Request) {
   if (!url)
     return NextResponse.json({ error: "Tautan kosong" }, { status: 400 });
   try {
+    await clearLastExtractCache();
     const { data, error } = await db().rpc("delete_source_with_orphans", {
       p_source_url: url,
     });

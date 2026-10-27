@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { parsePostedAt } from "./posted";
 
@@ -189,6 +189,15 @@ async function saveLastExtract(responseText: string) {
   await writeFile(path.join(cacheDirectory, "last-extract.json"), responseText, "utf8");
 }
 
+export async function clearLastExtractCache() {
+  try {
+    await unlink(path.join(process.cwd(), ".cache", "last-extract.json"));
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
+    throw error;
+  }
+}
+
 export async function scrapeJobs(url: string): Promise<ScrapedJob[]> {
   const key = process.env.SGAI_API_KEY;
   if (!key) throw new Error("SGAI_API_KEY belum diisi");
@@ -232,18 +241,17 @@ export async function scrapeJobs(url: string): Promise<ScrapedJob[]> {
     `[scrape] ScrapeGraphAI HTTP ${response.status}; durasi ${durationMs}ms; tipe ${responseType}; key level atas [${topLevel ? Object.keys(topLevel).join(", ") : ""}]`,
   );
 
-  try {
-    await saveLastExtract(responseText);
-  } catch (error) {
-    console.error("[scrape] Gagal menyimpan .cache/last-extract.json:", error);
-    throw new Error(`Respons diterima, tetapi gagal menyimpan salinan lokal: ${error instanceof Error ? error.message : String(error)}`);
-  }
-
   if (!response.ok) {
     throw new Error(`ScrapeGraphAI HTTP ${response.status}: ${responseText.slice(0, 500)}`);
   }
   if (typeof body === "string") {
     throw new Error(`Respons ScrapeGraphAI bukan JSON yang valid: ${responseText.slice(0, 500)}`);
   }
-  return parseJobs(body, url);
+  const rows = parseJobs(body, url);
+  try {
+    await saveLastExtract(responseText);
+  } catch (error) {
+    console.error("[scrape] Gagal menyimpan cache replay lokal; hasil scrape tetap diproses:", error);
+  }
+  return rows;
 }
