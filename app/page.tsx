@@ -96,7 +96,7 @@ async function HomeContent() {
       <section className="content-card quick-source">
         <div>
           <span aria-hidden="true" className="quick-icon">↗</span>
-          <div><h2>Tambah sumber pencarian</h2><p>Kelola beberapa URL sekaligus, satu URL per baris.</p></div>
+          <div><h2>Tambah sumber pencarian</h2><p>Tambahkan URL JobStreet satu per satu.</p></div>
         </div>
         <Link className="button button-primary" href="/sources">Kelola tautan</Link>
       </section>

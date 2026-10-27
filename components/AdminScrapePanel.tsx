@@ -64,7 +64,7 @@ function statusLabel(status: ScrapeSource["status"]) {
 export default function AdminScrapePanel({ initialSources }: { initialSources: SavedSource[] }) {
   const router = useRouter();
   const [adminKey, setAdminKey] = useState("");
-  const [urls, setUrls] = useState("");
+  const [sourceUrl, setSourceUrl] = useState("");
   const [sources, setSources] = useState<SavedSource[]>(initialSources);
   const [activeBatches, setActiveBatches] = useState<ActiveBatch[]>([]);
   const [replacementUrls, setReplacementUrls] = useState<Record<string, string>>({});
@@ -168,36 +168,29 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
 
   async function submitBatch(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const requestedUrls = urls.split(/\r?\n/).map((url) => url.trim()).filter(Boolean);
+    const requestedUrl = sourceUrl.trim();
     if (!adminKey.trim()) {
       setError("Masukkan kunci admin.");
       return;
     }
-    if (!requestedUrls.length) {
-      setError("Masukkan setidaknya satu URL sumber.");
+    if (!requestedUrl) {
+      setError("Masukkan URL sumber.");
       return;
     }
-    setUrls("");
-    await startBatch(requestedUrls);
+    await startBatch([requestedUrl]);
+    setSourceUrl("");
   }
 
-  async function updateSource(sourceUrl: string) {
+  async function refreshSource(sourceUrl: string) {
+    if (!adminKey.trim()) return setError("Masukkan kunci admin.");
+    await startBatch([sourceUrl]);
+  }
+
+  async function replaceSourceUrl(sourceUrl: string) {
     const newUrl = replacementUrls[sourceUrl]?.trim();
     if (!adminKey.trim()) return setError("Masukkan kunci admin.");
     if (!newUrl || newUrl === sourceUrl) return setError("Masukkan URL pengganti yang berbeda.");
     await startBatch([newUrl], [{ from: sourceUrl, to: newUrl }]);
-  }
-
-  async function refreshAllSources() {
-    if (!adminKey.trim()) {
-      setError("Masukkan kunci admin.");
-      return;
-    }
-    if (sources.length === 0) {
-      setError("Belum ada tautan yang dapat diperbarui.");
-      return;
-    }
-    await startBatch(sources.map((source) => source.url));
   }
 
   async function deleteSource(sourceUrl: string) {
@@ -273,7 +266,7 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
       <div className="sources-page-grid">
         <section className="content-card upload-card">
           <div className="section-heading">
-            <div><h2>Tambah daftar tautan</h2><p>Tempel URL halaman hasil pencarian, satu URL per baris.</p></div>
+            <div><h2>Tambah tautan</h2><p>Masukkan satu URL JobStreet, lalu simpan sebelum menambahkan URL berikutnya.</p></div>
             <span aria-label="Langkah 1" className="step-number">01</span>
           </div>
           <label className="field-label" htmlFor="admin-key">Kunci admin</label>
@@ -287,23 +280,24 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
             value={adminKey}
           />
           <form onSubmit={submitBatch}>
-            <label className="field-label" htmlFor="source-urls">Daftar URL</label>
-            <textarea
-              className="text-input links-textarea"
-              id="source-urls"
-              onChange={(event) => setUrls(event.target.value)}
+            <label className="field-label" htmlFor="source-url">URL JobStreet</label>
+            <input
+              className="text-input source-url-input"
+              id="source-url"
+              onChange={(event) => setSourceUrl(event.target.value)}
               placeholder="https://id.jobstreet.com/..."
-              rows={6}
-              value={urls}
+              required
+              type="url"
+              value={sourceUrl}
             />
             <div className="upload-footer">
-              <span>{urls.split(/\r?\n/).filter((url) => url.trim()).length} URL · Maksimal 50 sekali tambah</span>
+              <span>Satu URL setiap kali simpan</span>
               <button className="button button-primary" disabled={loading} type="submit">
                 {loading ? "Memproses..." : "Simpan tautan"}
               </button>
             </div>
           </form>
-          <p className="credit-hint">Scrape berjalan di server menggunakan Firecrawl batch. Satu sumber gagal tidak menghentikan sumber lainnya.</p>
+          <p className="credit-hint">Setiap URL diproses satu per satu di server menggunakan Firecrawl.</p>
 
           <div className="source-tools">
             <button className="button button-secondary" disabled={!adminKey.trim() || loading} onClick={loadActiveBatches} type="button">
@@ -317,10 +311,7 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
 
         <section className="content-card source-table-card">
           <div className="section-heading">
-            <div><h2>Tautan tersimpan <span className="count-pill">{sources.length}</span></h2><p>Semua lowongan dari sumber ini digabung dan bisa dicari bersama.</p></div>
-            <button className="button button-secondary" disabled={loading} onClick={refreshAllSources} type="button">
-              Perbarui semua
-            </button>
+            <div><h2>Tautan tersimpan <span className="count-pill">{sources.length}</span></h2><p>Refresh mengambil ulang URL yang sama. Gunakan Ganti URL hanya jika tautannya berubah.</p></div>
           </div>
 
           {sources.length === 0 ? (
@@ -351,7 +342,8 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
                       />
                     </div>
                     <div className="source-row-actions">
-                      <button className="button button-secondary" disabled={loading} onClick={() => updateSource(source.url)} type="button">Perbarui</button>
+                      <button className="button button-secondary" disabled={loading} onClick={() => refreshSource(source.url)} type="button">Refresh</button>
+                      <button className="button button-secondary" disabled={loading} onClick={() => replaceSourceUrl(source.url)} type="button">Ganti URL</button>
                       <button className="button button-danger" disabled={loading} onClick={() => deleteSource(source.url)} type="button">Hapus</button>
                     </div>
                   </li>

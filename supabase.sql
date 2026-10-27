@@ -46,11 +46,7 @@ set posted_at = relative_postings.scraped_at - case
 end
 from relative_postings
 where jobs.job_url = relative_postings.job_url
-  and relative_postings.relative_parts is not null
-  and (
-    jobs.posted_at is null
-    or jobs.posted_at < relative_postings.scraped_at - interval '7 days'
-  );
+  and relative_postings.relative_parts is not null;
 with approximate_postings as (
   select
     job_url,
@@ -79,11 +75,7 @@ set posted_at = approximate_postings.scraped_at - make_interval(
 )
 from approximate_postings
 where jobs.job_url = approximate_postings.job_url
-  and approximate_postings.age_parts is not null
-  and (
-    jobs.posted_at is null
-    or jobs.posted_at < approximate_postings.scraped_at - interval '7 days'
-  );
+  and approximate_postings.age_parts is not null;
 create index if not exists jobs_posted_cursor_idx on jobs (posted_at desc nulls last, job_url asc);
 create index if not exists jobs_source_url_idx on jobs (source_url);
 create index if not exists jobs_scraped_at_idx on jobs (scraped_at);

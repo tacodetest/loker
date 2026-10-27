@@ -9,11 +9,11 @@ import { db, isAdmin } from "@/lib/supabase";
 export const maxDuration = 60;
 
 const requestSchema = z.object({
-  urls: z.array(z.string().trim().min(1).max(2048)).min(1).max(50),
+  urls: z.array(z.string().trim().min(1).max(2048)).length(1),
   replacements: z.array(z.object({
     from: z.string().trim().min(1).max(2048),
     to: z.string().trim().min(1).max(2048),
-  })).max(50).optional().default([]),
+  })).max(1).optional().default([]),
 });
 
 type BatchRow = {
@@ -53,7 +53,7 @@ export async function POST(req: Request) {
   const body: unknown = await req.json().catch(() => null);
   const parsed = requestSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ error: "Daftar URL tidak valid; maksimal 50 URL per batch." }, { status: 400 });
+    return NextResponse.json({ error: "Kirim tepat satu URL JobStreet dalam setiap permintaan." }, { status: 400 });
   }
 
   const urls = [...new Set(parsed.data.urls.map((value) => {

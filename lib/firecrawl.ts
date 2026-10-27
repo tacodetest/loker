@@ -115,7 +115,7 @@ export async function createFirecrawlBatch(urls: string[]) {
           type: "json",
           schema: firecrawlSchema,
           prompt:
-            "Ekstrak semua lowongan kerja yang tampil. Untuk setiap lowongan keluarkan job_url (URL absolut ke halaman detail), title, company, location, salary, description sebagai teks biasa maksimal 2000 karakter, posted_text persis seperti terlihat, dan posted_at sebagai ISO 8601 hanya bila tanggal pasti terlihat. Jangan menebak data atau tanggal.",
+            "Ekstrak semua lowongan kerja yang tampil pada halaman hasil pencarian. Untuk setiap lowongan, ambil posted_text hanya dari label umur/tanggal yang terlihat pada kartu lowongan itu sendiri; salin persis, misalnya '5 days ago' atau 'Listed more than five days ago'. Jangan mengambil tanggal dari halaman detail, metadata halaman, atau kartu lowongan lain. Jangan mengubah, menghitung ulang, atau menebak umur. Jika label tidak terlihat jelas, isi posted_text null. Isi posted_at hanya jika tanggal kalender absolut terlihat jelas pada kartu yang sama; jika hanya label relatif, isi posted_at null. Keluarkan job_url sebagai URL absolut ke halaman detail, title, company, location, salary, dan description sebagai teks biasa maksimal 2000 karakter. Jangan menebak data.",
         },
       ],
       onlyMainContent: true,

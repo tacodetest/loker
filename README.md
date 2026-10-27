@@ -35,13 +35,13 @@ ADMIN_KEY=...
 
 ## Pengambilan dan pengelolaan lowongan
 
-Admin membuka halaman **Kelola tautan**, memasukkan `ADMIN_KEY`, lalu mengirim hingga 50 URL JobStreet. `POST /api/scrape` memulai satu batch asynchronous Firecrawl; UI melakukan polling status pending/scraping/done/failed dan menyimpan tiap sumber yang berhasil secara terpisah. Firecrawl memakai structured JSON, schema yang dihasilkan dari Zod, `onlyMainContent`, cache 10 menit, dan concurrency maksimum 5. Kegagalan satu URL tidak membatalkan sumber lain.
+Admin membuka halaman **Kelola tautan**, memasukkan `ADMIN_KEY`, lalu mengirim satu URL JobStreet per permintaan. `POST /api/scrape` memulai satu batch asynchronous Firecrawl untuk URL tersebut; UI melakukan polling status pending/scraping/done/failed sebelum URL berikutnya dikirim. Tautan tersimpan dapat di-refresh dengan mengambil ulang URL yang sama, tanpa mengubahnya; tombol **Ganti URL** disediakan terpisah jika alamat sumber memang berubah. Firecrawl memakai structured JSON, schema yang dihasilkan dari Zod, `onlyMainContent`, dan cache 10 menit.
 
 Penggantian URL akan mengambil dan menyimpan hasil URL baru terlebih dahulu. Data lama baru dihapus setelah hasil baru valid dan berhasil disimpan. Penghapusan sumber hanya membuang lowongan yatim yang tidak lagi terhubung ke sumber lain. Deskripsi disimpan sebagai teks biasa maksimal 2.000 karakter.
 
-Daftar publik dirender sebagai Server Component dengan cursor pagination, urutan tanggal posting terbaru, pencarian judul pekerjaan, dan filter 1, 3, atau maksimal 7 hari; query Supabase dan halaman detail juga menerapkan batas 7 hari. Perusahaan dan lokasi ditentukan melalui filter di URL sumber JobStreet. Hanya lowongan JobStreet yang ditampilkan. Lowongan tanpa tanggal posting yang bisa dipastikan tidak ditampilkan. Halaman daftar hanya mengambil kolom ringan, dan deskripsi diambil saat detail lowongan dibuka. Data daftar, detail, dan ringkasan dibaca langsung dari Supabase agar perubahan SQL langsung terlihat tanpa menunggu cache.
+Daftar publik dirender sebagai Server Component dengan pagination bernomor, urutan tanggal posting terbaru, pencarian judul pekerjaan, dan filter 1, 3, atau maksimal 7 hari; nomor halaman dan jumlah hasil menyesuaikan data yang cocok dengan filter. Query Supabase dan halaman detail juga menerapkan batas 7 hari. Perusahaan dan lokasi ditentukan melalui filter di URL sumber JobStreet. Hanya lowongan JobStreet yang ditampilkan. Lowongan tanpa tanggal posting yang bisa dipastikan tidak ditampilkan. Halaman daftar hanya mengambil kolom ringan, dan deskripsi diambil saat detail lowongan dibuka. Data daftar, detail, dan ringkasan dibaca langsung dari Supabase agar perubahan SQL langsung terlihat tanpa menunggu cache.
 
-Endpoint scrape hanya menerima URL HTTP/HTTPS pada domain JobStreet, memerlukan header `x-admin-key`, dan dibatasi lima batch per menit per admin. `FIRECRAWL_API_KEY` dan Supabase service-role key hanya digunakan server-side.
+Endpoint scrape hanya menerima tepat satu URL HTTP/HTTPS pada domain JobStreet per permintaan, memerlukan header `x-admin-key`, dan dibatasi lima permintaan per menit per admin. `FIRECRAWL_API_KEY` dan Supabase service-role key hanya digunakan server-side.
 
 ## Replay hasil Firecrawl tanpa kredit
 

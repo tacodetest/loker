@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { io } from "next/cache";
 import { getPostedAge } from "@/lib/job-age";
-import { getJobsPage } from "@/lib/jobs";
+import { getJobsPage, JOBS_PAGE_SIZE } from "@/lib/jobs";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
@@ -13,6 +13,24 @@ function firstValue(value: string | string[] | undefined, maxLength = 100) {
 function safeDays(value: string) {
   const days = Number(value);
   return Number.isInteger(days) && days > 0 ? Math.min(days, 7) : 7;
+}
+
+function safePage(value: string) {
+  const page = Number(value);
+  return Number.isSafeInteger(page) && page > 0 ? page : 1;
+}
+
+function visiblePages(currentPage: number, totalPages: number) {
+  const pages = Array.from(new Set([1, currentPage - 1, currentPage, currentPage + 1, totalPages]))
+    .filter((page) => page >= 1 && page <= totalPages)
+    .sort((a, b) => a - b);
+  const items: Array<number | "ellipsis"> = [];
+
+  for (const [index, page] of pages.entries()) {
+    if (index > 0 && page - pages[index - 1] > 1) items.push("ellipsis");
+    items.push(page);
+  }
+  return items;
 }
 
 function formatDate(value: string | null) {
@@ -40,13 +58,18 @@ async function JobsPageContent({ searchParams }: { searchParams: SearchParams })
   const params = await searchParams;
   const search = firstValue(params.q);
   const days = params.days === undefined ? 7 : safeDays(firstValue(params.days, 4));
-  const cursor = firstValue(params.cursor, 4096);
-  const { jobs, nextCursor } = await getJobsPage({ search, days, cursor });
+  const page = safePage(firstValue(params.page, 10));
+  const { jobs, currentPage, totalJobs, totalPages } = await getJobsPage({ search, days, page });
+  const firstResult = totalJobs === 0 ? 0 : (currentPage - 1) * JOBS_PAGE_SIZE + 1;
+  const lastResult = Math.min(currentPage * JOBS_PAGE_SIZE, totalJobs);
 
-  const nextParams = new URLSearchParams();
-  if (search) nextParams.set("q", search);
-  if (days) nextParams.set("days", String(days));
-  if (nextCursor) nextParams.set("cursor", nextCursor);
+  function pageHref(targetPage: number) {
+    const pageParams = new URLSearchParams();
+    if (search) pageParams.set("q", search);
+    pageParams.set("days", String(days));
+    pageParams.set("page", String(targetPage));
+    return `/jobs?${pageParams.toString()}`;
+  }
 
   return (
     <main className="main-content">
@@ -73,7 +96,9 @@ async function JobsPageContent({ searchParams }: { searchParams: SearchParams })
           </select>
         </label>
         <button className="button button-primary filters-submit" type="submit">Cari</button>
-        <span className="results-count">{jobs.length} lowongan di halaman ini</span>
+        <span className="results-count">
+          Menampilkan {firstResult}–{lastResult} dari {totalJobs} lowongan
+        </span>
       </form>
 
       {jobs.length === 0 ? (
@@ -109,9 +134,33 @@ async function JobsPageContent({ searchParams }: { searchParams: SearchParams })
         </ul>
       )}
 
-      {nextCursor && (
+      {totalPages > 1 && (
         <nav aria-label="Navigasi halaman lowongan" className="pagination">
-          <Link className="button button-secondary" href={`/jobs?${nextParams.toString()}`}>Lowongan berikutnya →</Link>
+          {currentPage > 1 ? (
+            <Link aria-label="Halaman sebelumnya" className="button button-secondary pagination-direction" href={pageHref(currentPage - 1)}>
+              ← Sebelumnya
+            </Link>
+          ) : <span aria-hidden="true" className="button button-secondary pagination-direction pagination-disabled">← Sebelumnya</span>}
+          <div className="pagination-pages">
+            {visiblePages(currentPage, totalPages).map((pageNumber, index) => pageNumber === "ellipsis" ? (
+              <span aria-hidden="true" className="pagination-ellipsis" key={`ellipsis-${index}`}>…</span>
+            ) : (
+              <Link
+                aria-current={pageNumber === currentPage ? "page" : undefined}
+                aria-label={`Halaman ${pageNumber}`}
+                className={`pagination-page${pageNumber === currentPage ? " pagination-page-active" : ""}`}
+                href={pageHref(pageNumber)}
+                key={pageNumber}
+              >
+                {pageNumber}
+              </Link>
+            ))}
+          </div>
+          {currentPage < totalPages ? (
+            <Link aria-label="Halaman berikutnya" className="button button-secondary pagination-direction" href={pageHref(currentPage + 1)}>
+              Berikutnya →
+            </Link>
+          ) : <span aria-hidden="true" className="button button-secondary pagination-direction pagination-disabled">Berikutnya →</span>}
         </nav>
       )}
     </main>
