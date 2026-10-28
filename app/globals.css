@@ -212,7 +212,6 @@ a { color: inherit; }
 .job-card:hover { border-color: #cbd8ed; box-shadow: 0 5px 15px rgb(41 70 115 / 6%); }
 .job-age { display: grid; min-width: 76px; min-height: 54px; align-content: center; justify-items: center; padding: 7px 5px; border-radius: 10px; background: #f1f4f8; color: #66748a; text-align: center; }
 .job-age strong { font-size: .72rem; letter-spacing: 0; line-height: 1.3; overflow-wrap: anywhere; }
-.job-age span { margin-top: 2px; font-size: .58rem; line-height: 1.25; }
 .job-age-fresh { background: #e9f7ef; color: #17845d; }
 .job-age-unknown { background: #f3f0fa; color: #76639f; }
 .job-content { min-width: 0; }
@@ -438,7 +437,6 @@ a { color: inherit; }
   .job-age { min-height: 48px; }
   .job-age { min-width: 64px; }
   .job-age strong { font-size: .66rem; }
-  .job-age span { font-size: .52rem; }
   .job-content h3 { font-size: .87rem; }
   .job-meta { gap: 3px 8px; font-size: .68rem; }
   .job-description { font-size: .69rem; }
