@@ -47,11 +47,13 @@ export async function POST(request: Request) {
 
   try {
     const { data, error } = await db().from("scrape_batches")
-      .select("id, owner_id, firecrawl_batch_id, requested_urls, replacements, status")
+      .select("id, owner_id, firecrawl_batch_id, requested_urls, replacements, status, trigger")
       .eq("firecrawl_batch_id", payload.id)
       .maybeSingle();
     if (error) throw new Error(`Gagal mencari batch webhook: ${error.message}`);
-    if (!data) return NextResponse.json({ ok: true, ignored: true });
+    if (!data) {
+      return NextResponse.json({ error: "Batch belum tercatat; Firecrawl dapat mencoba mengirim ulang." }, { status: 503 });
+    }
     if (!isAppUserId(data.owner_id)) throw new Error("Akun pemilik batch tidak valid.");
     if (data.status === "done" || data.status === "failed") {
       return NextResponse.json({ ok: true, alreadyProcessed: true });
@@ -67,7 +69,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Batch Firecrawl belum selesai." }, { status: 503 });
     }
 
-    const result = await finishScrapeBatch(batch, data.owner_id, progress);
+    const result = await finishScrapeBatch(batch, data.owner_id, progress, data.trigger === "automatic");
     return NextResponse.json({ ok: true, status: result.status, sources: result.sources });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Gagal memproses webhook Firecrawl.";

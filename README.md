@@ -36,7 +36,7 @@ Navigasi antarhalaman mempertahankan state sementara dalam memori tab. Hasil ana
 
 ## Pengambilan dan pengelolaan lowongan
 
-Setelah login, pengguna dapat membuka halaman **Kelola tautan**, menyimpan satu URL JobStreet atau menekan **Perbarui semua tautan** untuk mengambil ulang semua sumber milik akunnya dalam satu batch. `POST /api/scrape` menerima 1–1.000 URL dan memulai batch asynchronous Firecrawl; UI menampilkan status dan jumlah lowongan per tautan di bagian bawah halaman. Tautan tersimpan di-refresh dengan mengambil ulang URL yang sama, tanpa mengubahnya; tombol **Ganti URL** disediakan terpisah jika alamat sumber memang berubah. Firecrawl memakai structured JSON, schema yang dihasilkan dari Zod, `onlyMainContent`, dan cache 10 menit.
+Setelah login, pengguna dapat membuka halaman **Kelola tautan** dan menyimpan URL pencarian JobStreet. URL baru langsung diambil sekali; tautan tersimpan kemudian diperbarui otomatis dua kali sehari. Halaman menampilkan hasil serta waktu pembaruan otomatis terakhir. Pengguna dapat mengganti URL pencarian atau menghapusnya; scrape ulang manual tersedia saat menambahkan atau mengganti URL. Firecrawl memakai structured JSON, schema yang dihasilkan dari Zod, `onlyMainContent`, dan cache 10 menit.
 
 Penggantian URL akan mengambil dan menyimpan hasil URL baru terlebih dahulu. Data lama baru dihapus setelah hasil baru valid dan berhasil disimpan. Penghapusan sumber hanya membuang lowongan yatim yang tidak lagi terhubung ke sumber lain. Deskripsi disimpan sebagai teks biasa maksimal 2.000 karakter.
 
@@ -48,7 +48,7 @@ Endpoint scrape hanya menerima URL HTTP/HTTPS pada domain JobStreet (maksimal 1.
 
 Setelah menjalankan `supabase.sql`, tambahkan `APP_BASE_URL` (URL production HTTPS), `CRON_SECRET` (secret acak panjang), dan `FIRECRAWL_WEBHOOK_SECRET` (signing secret dari pengaturan Advanced Firecrawl) ke environment production Vercel. Buat job di cron-job.org dengan metode `POST` ke `https://<domain-production>/api/cron/scrape`, header `Authorization: Bearer <CRON_SECRET>`, dan jadwal `0 0,12 * * *` dengan zona waktu `Asia/Jakarta` (00.00 dan 12.00 WIB). Jangan menaruh secret di URL.
 
-Endpoint terjadwal memproses tautan tersimpan untuk akun Taufik dan Alya, mencegah duplikasi per slot jadwal, dan melewati akun yang masih memiliki batch aktif. Firecrawl mengirim callback hasil setelah batch selesai; callback memverifikasi HMAC `X-Firecrawl-Signature` sebelum menyimpan lowongan. Karena paket Vercel Hobby hanya mengizinkan Cron Vercel sekali sehari, pemicu dua kali sehari berasal dari cron-job.org; pemanggilan endpoint dan scrape tetap menggunakan kuota fungsi Vercel dan kredit Firecrawl. Pastikan project Firecrawl memiliki signing secret yang sama dengan `FIRECRAWL_WEBHOOK_SECRET`.
+Endpoint terjadwal memproses tautan tersimpan untuk akun Taufik dan Alya, mencegah duplikasi per slot jadwal, dan melewati akun yang masih memiliki batch aktif. Halaman Kelola tautan menampilkan status serta waktu Jakarta dari pembaruan otomatis terakhir; status berhasil/gagal disimpan per sumber. Firecrawl mengirim callback hasil setelah batch selesai; callback memverifikasi HMAC `X-Firecrawl-Signature` sebelum menyimpan lowongan. Karena paket Vercel Hobby hanya mengizinkan Cron Vercel sekali sehari, pemicu dua kali sehari berasal dari cron-job.org; pemanggilan endpoint dan scrape tetap menggunakan kuota fungsi Vercel dan kredit Firecrawl. Pastikan project Firecrawl memiliki signing secret yang sama dengan `FIRECRAWL_WEBHOOK_SECRET`.
 
 ## Replay hasil Firecrawl tanpa kredit
 

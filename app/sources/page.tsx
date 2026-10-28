@@ -11,7 +11,7 @@ export default async function SourcesPage() {
         <div>
           <p className="eyebrow">PENGELOLAAN SUMBER</p>
           <h1>Kelola tautan</h1>
-          <p>Tambahkan URL pencarian, perbarui lowongan, atau hapus sumber tersimpan.</p>
+          <p>Tambahkan URL pencarian, pantau pembaruan otomatis, ganti URL, atau hapus sumber tersimpan.</p>
         </div>
       </header>
       <AdminScrapePanel initialSources={sources} />

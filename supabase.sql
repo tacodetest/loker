@@ -404,9 +404,13 @@ end;
 $$;
 
 alter table sources add column if not exists owner_id text not null default 'taufik';
+alter table sources add column if not exists auto_scrape_updated_at timestamptz;
+alter table sources add column if not exists auto_scrape_status text;
+alter table sources add column if not exists auto_scrape_error text;
 alter table jobs add column if not exists owner_id text not null default 'taufik';
 alter table job_sources add column if not exists owner_id text not null default 'taufik';
 alter table scrape_batches add column if not exists owner_id text not null default 'taufik';
+alter table scrape_batches add column if not exists trigger text not null default 'manual';
 
 alter table job_sources drop constraint if exists job_sources_source_url_fkey;
 alter table job_sources drop constraint if exists job_sources_job_url_fkey;
@@ -422,6 +426,8 @@ alter table sources drop constraint if exists sources_owner_id_check;
 alter table jobs drop constraint if exists jobs_owner_id_check;
 alter table job_sources drop constraint if exists job_sources_owner_id_check;
 alter table scrape_batches drop constraint if exists scrape_batches_owner_id_check;
+alter table sources drop constraint if exists sources_auto_scrape_status_check;
+alter table scrape_batches drop constraint if exists scrape_batches_trigger_check;
 
 alter table sources add constraint sources_owner_url_pkey primary key (owner_id, url);
 alter table jobs add constraint jobs_owner_url_pkey primary key (owner_id, job_url);
@@ -436,6 +442,10 @@ alter table sources add constraint sources_owner_id_check check (owner_id in ('t
 alter table jobs add constraint jobs_owner_id_check check (owner_id in ('taufik', 'alya'));
 alter table job_sources add constraint job_sources_owner_id_check check (owner_id in ('taufik', 'alya'));
 alter table scrape_batches add constraint scrape_batches_owner_id_check check (owner_id in ('taufik', 'alya'));
+alter table sources add constraint sources_auto_scrape_status_check
+  check (auto_scrape_status is null or auto_scrape_status in ('running', 'success', 'failed'));
+alter table scrape_batches add constraint scrape_batches_trigger_check
+  check (trigger in ('manual', 'automatic'));
 
 drop policy if exists jobs_public_read on jobs;
 revoke all on jobs, sources, job_sources from public, anon, authenticated;

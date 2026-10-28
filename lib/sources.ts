@@ -7,6 +7,9 @@ import { db } from "./supabase";
 export type SavedSource = {
   url: string;
   last_scraped_at: string | null;
+  auto_scrape_updated_at: string | null;
+  auto_scrape_status: "running" | "success" | "failed" | null;
+  auto_scrape_error: string | null;
   job_count: number;
 };
 
@@ -15,7 +18,7 @@ export async function getSavedSources(ownerId: AppUserId): Promise<SavedSource[]
   const supabase = db();
   const { data, error } = await supabase
     .from("sources")
-    .select("url, last_scraped_at")
+    .select("url, last_scraped_at, auto_scrape_updated_at, auto_scrape_status, auto_scrape_error")
     .eq("owner_id", ownerId)
     .order("created_at", { ascending: false });
   if (error) {

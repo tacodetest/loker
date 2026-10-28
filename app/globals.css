@@ -345,6 +345,16 @@ a { color: inherit; }
 .source-details > a { overflow: hidden; color: #345b9a; font-size: .78rem; font-weight: 700; text-decoration: none; text-overflow: ellipsis; white-space: nowrap; }
 .source-details > a:hover { text-decoration: underline; }
 .source-details > div { display: flex; flex-wrap: wrap; gap: 2px 10px; color: #8490a1; font-size: .67rem; }
+.source-details .source-last-updated { margin: 0; color: #526176; font-size: .72rem; line-height: 1.45; overflow-wrap: anywhere; }
+.source-details .source-auto-status { display: flex; align-items: flex-start; gap: 6px; margin: 0; color: #738095; font-size: .72rem; font-weight: 650; line-height: 1.45; overflow-wrap: anywhere; }
+.source-status-error { color: #b42335; font-size: .68rem; line-height: 1.45; overflow-wrap: anywhere; }
+.source-auto-status > span { width: 7px; height: 7px; flex: 0 0 auto; margin-top: 5px; border-radius: 50%; background: #98a2b3; }
+.source-details .source-auto-status-success { color: #17845d; }
+.source-auto-status-success > span { background: #23a374; }
+.source-details .source-auto-status-failed { color: #b42335; }
+.source-auto-status-failed > span { background: #d04451; }
+.source-details .source-auto-status-running { color: #a56a13; }
+.source-auto-status-running > span { background: #d9922e; }
 .source-row-actions { display: flex; flex: 0 0 auto; gap: 6px; }
 .source-row-actions .button { min-height: 33px; padding: 6px 9px; font-size: .7rem; }
 .dev-tools { grid-column: 1; padding: 13px 15px; border: 1px dashed #cbd6e5; border-radius: 12px; background: #fff; color: var(--muted); font-size: .77rem; }
@@ -362,6 +372,10 @@ a { color: inherit; }
   .filters-card.skeleton-filters { grid-template-columns: minmax(0, 1fr) auto auto; }
   .results-count { grid-column: 1 / -1; justify-self: end; }
   .skeleton-filter-count { grid-column: 1 / -1; }
+}
+@media (max-width: 600px) {
+  .source-details .source-last-updated,
+  .source-details .source-auto-status { font-size: .68rem; }
 }
 @media (max-width: 850px) {
   .app-sidebar { width: 224px; }

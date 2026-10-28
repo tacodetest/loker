@@ -18,6 +18,27 @@ export type SourceOutcome = {
   error?: string;
 };
 
+export async function updateAutomaticSourceStatuses(
+  ownerId: AppUserId,
+  outcomes: { url: string; status: "running" | "success" | "failed"; error?: string }[],
+) {
+  const updatedAt = new Date().toISOString();
+  const updates = await Promise.all(outcomes.map(({ url, status, error }) =>
+    db().from("sources")
+      .update({
+        auto_scrape_updated_at: updatedAt,
+        auto_scrape_status: status,
+        auto_scrape_error: status === "failed" ? error ?? "Scrape otomatis gagal." : null,
+      })
+      .eq("owner_id", ownerId)
+      .eq("url", url),
+  ));
+  const failedUpdate = updates.find(({ error }) => error);
+  if (failedUpdate?.error) {
+    throw new Error(`Gagal memperbarui status scrape otomatis: ${failedUpdate.error.message}`);
+  }
+}
+
 export function normalizedScrapeUrl(value: string) {
   const url = new URL(value);
   url.hash = "";
@@ -32,6 +53,7 @@ export async function finishScrapeBatch(
   batch: ScrapeBatch,
   ownerId: AppUserId,
   progress: FirecrawlBatchStatus,
+  automatic = false,
 ) {
   if (progress.status === "scraping") {
     throw new Error("Batch Firecrawl belum selesai.");
@@ -70,6 +92,13 @@ export async function finishScrapeBatch(
   }));
 
   const status = sourceResults.some((result) => result.status === "done") ? "done" : "failed";
+  if (automatic) {
+    await updateAutomaticSourceStatuses(ownerId, sourceResults.map((result) => ({
+      url: result.url,
+      status: result.status === "done" ? "success" : "failed",
+      error: result.error,
+    })));
+  }
   const { error } = await db().from("scrape_batches")
     .update({
       status,

@@ -13,6 +13,9 @@ type ScrapeSource = {
 type SavedSource = {
   url: string;
   last_scraped_at: string | null;
+  auto_scrape_updated_at: string | null;
+  auto_scrape_status: "running" | "success" | "failed" | null;
+  auto_scrape_error: string | null;
   job_count: number;
 };
 
@@ -66,6 +69,23 @@ function statusLabel(status: ScrapeSource["status"]) {
     done: "Selesai",
     failed: "Gagal",
   }[status];
+}
+
+function formatUpdatedAt(source: SavedSource) {
+  const updatedAt = source.auto_scrape_updated_at ?? source.last_scraped_at;
+  if (!updatedAt) return "Belum pernah diperbarui";
+  return new Intl.DateTimeFormat("id-ID", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "Asia/Jakarta",
+  }).format(new Date(updatedAt));
+}
+
+function formatAutomaticStatus(source: SavedSource) {
+  if (source.auto_scrape_status === "success") return "Status: berhasil diperbarui";
+  if (source.auto_scrape_status === "failed") return "Status: gagal diperbarui";
+  if (source.auto_scrape_status === "running") return "Status: sedang diperbarui";
+  return "Status: menunggu pembaruan otomatis";
 }
 
 export default function AdminScrapePanel({ initialSources }: { initialSources: SavedSource[] }) {
@@ -234,22 +254,6 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
     setSourceUrl("");
   }
 
-  async function refreshSource(sourceUrl: string) {
-    await startBatch([sourceUrl]);
-  }
-
-  async function refreshAllSources() {
-    if (!sources.length) {
-      setDialog({ variant: "error", title: "Belum ada tautan", message: "Tambahkan tautan JobStreet terlebih dahulu." });
-      return;
-    }
-    if (sources.length > 1000) {
-      setDialog({ variant: "error", title: "Terlalu banyak tautan", message: "Maksimal 1.000 tautan dapat diperbarui dalam satu batch." });
-      return;
-    }
-    await startBatch(sources.map((source) => source.url));
-  }
-
   async function replaceSourceUrl(sourceUrl: string) {
     const newUrl = replacementUrls[sourceUrl]?.trim();
     if (!newUrl || newUrl === sourceUrl) {
@@ -406,17 +410,8 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
 
         <section className="content-card source-table-card">
           <div className="section-heading">
-            <div><h2>Tautan tersimpan <span className="count-pill">{sources.length}</span></h2><p>Refresh mengambil ulang URL yang sama. Gunakan Ganti URL hanya jika tautannya berubah.</p></div>
-            <button
-              className="button button-primary"
-              disabled={loading || sources.length === 0}
-              onClick={refreshAllSources}
-              type="button"
-            >
-              {loading ? "Memproses..." : "Perbarui semua tautan"}
-            </button>
+            <div><h2>Tautan tersimpan <span className="count-pill">{sources.length}</span></h2><p>Tautan diperbarui otomatis dua kali sehari. Gunakan Ganti URL hanya jika tautannya berubah.</p></div>
           </div>
-          <p className="source-tool-hint">Perbarui semua menjalankan Firecrawl untuk setiap tautan tersimpan; progres dan jumlah lowongan per tautan akan tampil di bagian bawah.</p>
 
           {sources.length === 0 ? (
             <div className="empty-inline">Belum ada tautan tersimpan. Tambahkan URL di formulir.</div>
@@ -432,8 +427,18 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
                       <div>
                         <span>JobStreet</span>
                         <span>{source.job_count} lowongan terhubung</span>
-                        <span>{source.last_scraped_at ? `Terakhir diambil ${new Intl.DateTimeFormat("id-ID", { dateStyle: "medium" }).format(new Date(source.last_scraped_at))}` : "Belum pernah diambil"}</span>
                       </div>
+                      <p className="source-last-updated">Terakhir diperbarui {formatUpdatedAt(source)}</p>
+                      <p
+                        className={`source-auto-status${source.auto_scrape_status ? ` source-auto-status-${source.auto_scrape_status}` : ""}`}
+                        title={source.auto_scrape_error ?? undefined}
+                      >
+                        <span aria-hidden="true" />
+                        {formatAutomaticStatus(source)}
+                      </p>
+                      {source.auto_scrape_status === "failed" && source.auto_scrape_error && (
+                        <small className="source-status-error">{source.auto_scrape_error}</small>
+                      )}
                       <label className="sr-only" htmlFor={`replace-${encodeURIComponent(source.url)}`}>URL pengganti untuk {host}</label>
                       <input
                         className="text-input replacement-input"
@@ -446,7 +451,6 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
                       />
                     </div>
                     <div className="source-row-actions">
-                      <button className="button button-secondary" disabled={loading} onClick={() => refreshSource(source.url)} type="button">Refresh</button>
                       <button className="button button-secondary" disabled={loading} onClick={() => replaceSourceUrl(source.url)} type="button">Ganti URL</button>
                       <button className="button button-danger" disabled={loading} onClick={() => deleteSource(source.url)} type="button">Hapus</button>
                     </div>

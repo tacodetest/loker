@@ -1,7 +1,7 @@
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import type { AppUserId } from "@/lib/auth";
-import { finishScrapeBatch } from "@/lib/finish-scrape-batch";
+import { finishScrapeBatch, updateAutomaticSourceStatuses } from "@/lib/finish-scrape-batch";
 import { createFirecrawlBatch, getBatchScrapeStatus } from "@/lib/firecrawl";
 import { db } from "@/lib/supabase";
 
@@ -106,9 +106,10 @@ async function startScheduledBatch(ownerId: AppUserId, slotKey: string, webhookU
 
   const supabase = db();
   let batchId: string | null = null;
+  let sourceUrls: string[] = [];
   try {
     const { data: activeBatch, error: activeBatchError } = await supabase.from("scrape_batches")
-      .select("id, firecrawl_batch_id, requested_urls, replacements")
+      .select("id, firecrawl_batch_id, requested_urls, replacements, trigger")
       .eq("owner_id", ownerId)
       .in("status", ["pending", "scraping"])
       .limit(1)
@@ -125,7 +126,7 @@ async function startScheduledBatch(ownerId: AppUserId, slotKey: string, webhookU
             id: activeBatch.id,
             requested_urls: activeBatch.requested_urls,
             replacements: activeBatch.replacements as { from: string; to: string }[],
-          }, ownerId, progress);
+          }, ownerId, progress, activeBatch.trigger === "automatic");
         } else {
           await setScheduledRun(ownerId, slotKey, "skipped");
           return { ownerId, status: "skipped_active_batch" as const, sourceCount: 0 };
@@ -152,12 +153,12 @@ async function startScheduledBatch(ownerId: AppUserId, slotKey: string, webhookU
       .order("created_at", { ascending: true })
       .limit(1001);
     if (sourcesError) throw new Error(`Gagal memuat tautan tersimpan: ${sourcesError.message}`);
-    const urls = [...new Set((sources ?? []).map(({ url }) => url))];
-    if (urls.length === 0) {
+    sourceUrls = [...new Set((sources ?? []).map(({ url }) => url))];
+    if (sourceUrls.length === 0) {
       await setScheduledRun(ownerId, slotKey, "skipped");
       return { ownerId, status: "no_saved_sources" as const, sourceCount: 0 };
     }
-    if (urls.length > 1000) {
+    if (sourceUrls.length > 1000) {
       throw new Error("Akun memiliki lebih dari 1.000 tautan; kurangi jumlah tautan sebelum scrape otomatis.");
     }
 
@@ -165,15 +166,17 @@ async function startScheduledBatch(ownerId: AppUserId, slotKey: string, webhookU
     const { error: insertError } = await supabase.from("scrape_batches").insert({
       id: batchId,
       owner_id: ownerId,
-      requested_urls: urls,
+      requested_urls: sourceUrls,
       replacements: [],
+      trigger: "automatic",
       status: "pending",
-      total: urls.length,
+      total: sourceUrls.length,
       completed: 0,
     });
     if (insertError) throw new Error(`Gagal membuat batch scrape: ${insertError.message}`);
 
-    const firecrawlBatchId = await createFirecrawlBatch(urls, webhookUrl);
+    await updateAutomaticSourceStatuses(ownerId, sourceUrls.map((url) => ({ url, status: "running" })));
+    const firecrawlBatchId = await createFirecrawlBatch(sourceUrls, webhookUrl);
     const { error: updateError } = await supabase.from("scrape_batches")
       .update({
         firecrawl_batch_id: firecrawlBatchId,
@@ -184,7 +187,7 @@ async function startScheduledBatch(ownerId: AppUserId, slotKey: string, webhookU
       .eq("owner_id", ownerId);
     if (updateError) throw new Error(`Gagal menyimpan ID batch Firecrawl: ${updateError.message}`);
     await setScheduledRun(ownerId, slotKey, "started", batchId);
-    return { ownerId, status: "started" as const, sourceCount: urls.length };
+    return { ownerId, status: "started" as const, sourceCount: sourceUrls.length };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Scrape otomatis gagal.";
     if (batchId) {
@@ -198,6 +201,20 @@ async function startScheduledBatch(ownerId: AppUserId, slotKey: string, webhookU
         .eq("owner_id", ownerId);
       if (batchUpdateError) {
         console.error("[cron] Gagal menandai batch sebagai gagal:", batchUpdateError.message);
+      }
+    }
+    if (sourceUrls.length) {
+      try {
+        await updateAutomaticSourceStatuses(ownerId, sourceUrls.map((url) => ({
+          url,
+          status: "failed" as const,
+          error: message,
+        })));
+      } catch (statusError) {
+        console.error(
+          "[cron] Gagal memperbarui status sumber otomatis:",
+          statusError instanceof Error ? statusError.message : String(statusError),
+        );
       }
     }
     await setScheduledRun(ownerId, slotKey, "failed");
