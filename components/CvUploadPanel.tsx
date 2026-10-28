@@ -12,6 +12,7 @@ type CvInfo = {
 };
 
 type CvAnalysis = {
+  method: "ai" | "local";
   analyzedAt: string;
   keywords: string[];
   matches: {
@@ -33,6 +34,7 @@ type CvAnalysis = {
 };
 
 const cvAnalysisSchema = z.object({
+  method: z.enum(["ai", "local"]).optional(),
   analyzedAt: z.string(),
   keywords: z.array(z.string()),
   matches: z.array(z.object({
@@ -138,10 +140,11 @@ export default function CvUploadPanel({ savedAnalysis }: { savedAnalysis: unknow
 
   function parseAnalysis(body: ApiRecord): CvAnalysis | null {
     if (body.analysis === null && body.analyzedAt === null) return null;
-    return cvAnalysisSchema.parse({
+    const parsed = cvAnalysisSchema.parse({
       ...(isRecord(body.analysis) ? body.analysis : {}),
       analyzedAt: body.analyzedAt,
     });
+    return { ...parsed, method: parsed.method ?? "local" };
   }
 
   async function loadCv() {
@@ -364,7 +367,7 @@ export default function CvUploadPanel({ savedAnalysis }: { savedAnalysis: unknow
           <div className="cv-match-heading">
             <div>
               <h2 id="cv-match-title">Kecocokan dengan lowongan</h2>
-              <p>Pemeringkatan kata kunci dihitung lokal dari CV dan lowongan 7 hari terakhir.</p>
+              <p>Analisis AI menampilkan maksimal 20 lowongan relevan dari lowongan 7 hari terakhir.</p>
             </div>
             <button
               className="button button-primary"
@@ -378,13 +381,13 @@ export default function CvUploadPanel({ savedAnalysis }: { savedAnalysis: unknow
             </button>
           </div>
           <p className="cv-privacy-note">
-            Penjelasan AI memakai Gemini API free tier. Teks CV dikirim ke Google setelah bagian identitas,
+            Analisis memakai Gemini API free tier untuk mengambil kata kunci dan menilai kecocokan. Teks CV dikirim ke Google setelah bagian identitas,
             kontak, tautan, dan data sensitif umum disamarkan. Google dapat menggunakan data free tier untuk meningkatkan produk.
           </p>
           {analysisLoading && (
             <div aria-live="polite" className="cv-analysis-loading">
               <span className="spinner" />
-              <p>Mencocokkan kata kunci dan meminta penjelasan AI untuk lowongan teratas...</p>
+              <p>AI sedang mengambil kata kunci CV dan memilih lowongan yang paling cocok...</p>
             </div>
           )}
           {analysis && (
@@ -395,6 +398,11 @@ export default function CvUploadPanel({ savedAnalysis }: { savedAnalysis: unknow
                   timeStyle: "short",
                 }).format(new Date(analysis.analyzedAt))}. Hasil tetap tersedia sampai Anda menjalankan analisis ulang.
               </p>
+              {analysis.method === "local" && (
+                <p className="cv-score-disclaimer">
+                  Hasil ini memakai metode analisis sebelumnya. Pilih Analisis ulang untuk mendapatkan kata kunci dan pencocokan dari AI.
+                </p>
+              )}
               <div className="cv-keywords">
                 <strong>Kata kunci CV</strong>
                 <div>{analysis.keywords.map((keyword) => <span key={keyword}>{keyword}</span>)}</div>
@@ -403,7 +411,7 @@ export default function CvUploadPanel({ savedAnalysis }: { savedAnalysis: unknow
                 <article className="cv-match-card" key={match.job.job_url}>
                   <div className="cv-match-card-heading">
                     <div>
-                      <p className="eyebrow">SKOR KATA KUNCI</p>
+                      <p className="eyebrow">{analysis.method === "ai" ? "SKOR KECOCOKAN AI" : "SKOR KATA KUNCI"}</p>
                       <h3>{match.job.title}</h3>
                       <p className="cv-match-meta">
                         {match.job.company || "Perusahaan tidak dicantumkan"}
@@ -442,10 +450,13 @@ export default function CvUploadPanel({ savedAnalysis }: { savedAnalysis: unknow
                   </a>
                 </article>
               )) : (
-                <p className="cv-empty-state">Belum ada lowongan aktif dalam tujuh hari terakhir untuk dicocokkan.</p>
+                <p className="cv-empty-state">AI belum menemukan lowongan yang cukup cocok dari data tujuh hari terakhir.</p>
               )}
               <p className="cv-score-disclaimer">
-                Persentase adalah perkiraan kecocokan kata kunci lokal, bukan jaminan diterima. Verifikasi setiap persyaratan pada lowongan asli.
+                {analysis.method === "ai"
+                  ? "Persentase adalah perkiraan AI, bukan jaminan diterima."
+                  : "Persentase merupakan perkiraan kata kunci, bukan jaminan diterima."}{" "}
+                Maksimal 20 lowongan ditampilkan; verifikasi persyaratan pada lowongan asli.
               </p>
             </div>
           )}
