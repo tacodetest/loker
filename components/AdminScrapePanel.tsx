@@ -344,6 +344,28 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
         </article>
       </section>
 
+      <section aria-labelledby="source-examples-title" className="content-card source-instructions-card">
+        <div className="section-heading">
+          <div>
+            <h2 id="source-examples-title">Panduan link pencarian</h2>
+            <p>Silakan masukkan link pencarian JobStreet. Kata kunci pekerjaan dan nomor halaman dapat disesuaikan.</p>
+          </div>
+        </div>
+        <ul className="source-example-list">
+          <li>
+            <a href="https://id.jobstreet.com/id/Warehouse-jobs/in-Surabaya-Jawa-Timur?daterange=7" rel="noreferrer" target="_blank">
+              <code>https://id.jobstreet.com/id/<strong>Warehouse</strong>-jobs/in-Surabaya-Jawa-Timur?daterange=7</code>
+            </a>
+          </li>
+          <li>
+            <a href="https://id.jobstreet.com/id/Warehouse-jobs/in-Surabaya-Jawa-Timur?daterange=7&amp;page=2" rel="noreferrer" target="_blank">
+              <code>https://id.jobstreet.com/id/<strong>Warehouse</strong>-jobs/in-Surabaya-Jawa-Timur?daterange=7&amp;page=<strong>2</strong></code>
+            </a>
+          </li>
+        </ul>
+        <p className="source-instructions-note">Sesuaikan teks <strong>Warehouse</strong> dengan kata kunci pekerjaan dan angka setelah <code>page=</code> untuk halaman yang ingin diambil.</p>
+      </section>
+
       <div className="sources-page-grid">
         <section className="content-card upload-card">
           <div className="section-heading">

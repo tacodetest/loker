@@ -239,6 +239,14 @@ a { color: inherit; }
 .source-summary-copy > span { color: #718097; font-size: .73rem; line-height: 1.35; }
 .source-summary-copy strong { display: block; margin: 2px 0; font-size: 1.5rem; letter-spacing: -.04em; line-height: 1.2; }
 .source-summary-copy small { color: #99a4b2; font-size: .68rem; line-height: 1.4; }
+.source-instructions-card { margin-bottom: 16px; }
+.source-instructions-card .section-heading { margin-bottom: 10px; }
+.source-example-list { display: grid; gap: 7px; margin: 0; padding-left: 20px; color: #718097; font-size: .75rem; line-height: 1.6; overflow-wrap: anywhere; }
+.source-example-list a { color: #425675; text-decoration: none; }
+.source-example-list a:hover { color: var(--blue-dark); text-decoration: underline; }
+.source-example-list code, .source-instructions-note code { font-size: .7rem; }
+.source-example-list strong, .source-instructions-note strong { color: var(--ink); font-weight: 800; }
+.source-instructions-note { margin: 9px 0 0; color: #718097; font-size: .72rem; line-height: 1.5; }
 .sources-page-grid { display: grid; grid-template-columns: minmax(280px, .75fr) minmax(0, 1.35fr); align-items: start; gap: 16px; }
 .upload-card { grid-column: 1; grid-row: 1; }
 .upload-card .section-heading { margin-bottom: 11px; }
