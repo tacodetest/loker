@@ -78,13 +78,13 @@ insert into sources (url)
 select distinct source_url
 from jobs
 where source_url is not null
-on conflict (url) do nothing;
+on conflict do nothing;
 
 insert into job_sources (source_url, job_url)
 select source_url, job_url
 from jobs
 where source_url is not null
-on conflict (source_url, job_url) do nothing;
+on conflict do nothing;
 
 create or replace function public.cleanup_source_jobs(
   p_source_url text,
@@ -439,6 +439,15 @@ create table if not exists app_sessions (
 alter table app_sessions enable row level security;
 revoke all on app_sessions from public, anon, authenticated;
 grant all on app_sessions to service_role;
+
+create table if not exists cv_analyses (
+  owner_id text primary key check (owner_id in ('taufik', 'alya')),
+  analysis jsonb not null,
+  analyzed_at timestamptz not null default now()
+);
+alter table cv_analyses enable row level security;
+revoke all on cv_analyses from public, anon, authenticated;
+grant all on cv_analyses to service_role;
 
 drop function if exists public.refresh_source_jobs(text, jsonb);
 drop function if exists public.delete_source_with_orphans(text);

@@ -3,6 +3,7 @@ import { analyzeResume, CvAnalysisError, extractResumeText } from "@/lib/cv-matc
 import { getRecentJobsForMatching } from "@/lib/jobs";
 import { getRequestUser } from "@/lib/auth";
 import { db } from "@/lib/supabase";
+import type { AppUserId } from "@/lib/auth";
 
 export const maxDuration = 60;
 
@@ -11,6 +12,47 @@ const noStore = { headers: { "Cache-Control": "no-store, max-age=0" } };
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Analisis CV gagal diproses.";
+}
+
+async function analyzeAndSave(userId: AppUserId, file: Blob) {
+  const jobs = await getRecentJobsForMatching(userId);
+  if (!jobs.length) {
+    return NextResponse.json({ error: "Belum ada lowongan JobStreet aktif dalam 7 hari terakhir." }, { status: 404, ...noStore });
+  }
+
+  const resumeText = await extractResumeText(new Uint8Array(await file.arrayBuffer()));
+  const analysis = await analyzeResume(resumeText, jobs);
+  const analyzedAt = new Date().toISOString();
+  const { error } = await db().from("cv_analyses").upsert({
+    owner_id: userId,
+    analysis,
+    analyzed_at: analyzedAt,
+  }, { onConflict: "owner_id" });
+  if (error) throw new Error(`Analisis berhasil, tetapi hasilnya gagal disimpan: ${error.message}`);
+
+  return NextResponse.json({ analysis, analyzedAt }, noStore);
+}
+
+export async function GET(req: Request) {
+  const user = await getRequestUser(req);
+  if (!user) return NextResponse.json({ error: "Sesi login berakhir." }, { status: 401, ...noStore });
+
+  try {
+    const { data, error } = await db()
+      .from("cv_analyses")
+      .select("analysis, analyzed_at")
+      .eq("owner_id", user.id)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    return NextResponse.json({
+      analysis: data?.analysis ?? null,
+      analyzedAt: data?.analyzed_at ?? null,
+    }, noStore);
+  } catch (error) {
+    const message = errorMessage(error);
+    console.error("[cv] Gagal memuat hasil analisis:", message);
+    return NextResponse.json({ error: message }, { status: 500, ...noStore });
+  }
 }
 
 export async function POST(req: Request) {
@@ -33,13 +75,7 @@ export async function POST(req: Request) {
           throw new Error(legacyError.message);
         }
         if (legacyFile) {
-          const jobs = await getRecentJobsForMatching(user.id);
-          if (!jobs.length) {
-            return NextResponse.json({ error: "Belum ada lowongan JobStreet aktif dalam 7 hari terakhir." }, { status: 404, ...noStore });
-          }
-          const resumeText = await extractResumeText(new Uint8Array(await legacyFile.arrayBuffer()));
-          const result = await analyzeResume(resumeText, jobs);
-          return NextResponse.json(result, noStore);
+          return await analyzeAndSave(user.id, legacyFile);
         }
       }
       if (downloadError.message.toLowerCase().includes("not found")) {
@@ -48,14 +84,7 @@ export async function POST(req: Request) {
       throw new Error(downloadError.message);
     }
 
-    const jobs = await getRecentJobsForMatching(user.id);
-    if (!jobs.length) {
-      return NextResponse.json({ error: "Belum ada lowongan JobStreet aktif dalam 7 hari terakhir." }, { status: 404, ...noStore });
-    }
-
-    const resumeText = await extractResumeText(new Uint8Array(await file.arrayBuffer()));
-    const result = await analyzeResume(resumeText, jobs);
-    return NextResponse.json(result, noStore);
+    return await analyzeAndSave(user.id, file);
   } catch (error) {
     const message = errorMessage(error);
     console.error("[cv] Gagal menganalisis CV:", message);

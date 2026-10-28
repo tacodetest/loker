@@ -12,6 +12,7 @@ type CvInfo = {
 };
 
 type CvAnalysis = {
+  analyzedAt: string;
   keywords: string[];
   matches: {
     job: {
@@ -32,6 +33,7 @@ type CvAnalysis = {
 };
 
 const cvAnalysisSchema = z.object({
+  analyzedAt: z.string(),
   keywords: z.array(z.string()),
   matches: z.array(z.object({
     job: z.object({
@@ -52,9 +54,10 @@ const cvAnalysisSchema = z.object({
 });
 
 type DialogState = {
-  variant: "success" | "error";
+  variant: "success" | "error" | "confirm";
   title: string;
   message: string;
+  action?: "delete-cv";
 };
 
 type ApiRecord = Record<string, unknown>;
@@ -98,12 +101,15 @@ function formatFileSize(size: number | null) {
   return `${(size / (1024 * 1024)).toFixed(2)} MiB`;
 }
 
-export default function CvUploadPanel() {
+export default function CvUploadPanel({ savedAnalysis }: { savedAnalysis: unknown }) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [cv, setCv] = useState<CvInfo | null>(null);
   const [loading, setLoading] = useState(false);
   const [analysisLoading, setAnalysisLoading] = useState(false);
-  const [analysis, setAnalysis] = useSessionState<CvAnalysis | null>("cv-analysis", null);
+  const [analysis, setAnalysis] = useSessionState<CvAnalysis | null>(
+    "cv-analysis",
+    isRecord(savedAnalysis) ? parseAnalysis(savedAnalysis) : null,
+  );
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -130,19 +136,40 @@ export default function CvUploadPanel() {
     });
   }
 
+  function parseAnalysis(body: ApiRecord): CvAnalysis | null {
+    if (body.analysis === null && body.analyzedAt === null) return null;
+    return cvAnalysisSchema.parse({
+      ...(isRecord(body.analysis) ? body.analysis : {}),
+      analyzedAt: body.analyzedAt,
+    });
+  }
+
   async function loadCv() {
-    setLoading(true);
     try {
-      const body = await responseJson(await fetch("/api/cv", {
-        cache: "no-store",
-      }));
-      setCv(parseCv(body.cv));
-      setAnalysis(null);
+      const [cvResponse, analysisResponse] = await Promise.all([
+        fetch("/api/cv", { cache: "no-store" }),
+        fetch("/api/cv/analyze", { cache: "no-store" }),
+      ]);
+      const [cvBody, analysisBody] = await Promise.all([
+        responseJson(cvResponse),
+        responseJson(analysisResponse),
+      ]);
+      const loadedCv = parseCv(cvBody.cv);
+      setCv(loadedCv);
+      setAnalysis(parseAnalysis(analysisBody));
+      setDialog(loadedCv
+        ? { variant: "success", title: "CV berhasil dimuat", message: "CV dan hasil analisis tersimpan sudah ditampilkan." }
+        : { variant: "error", title: "CV belum tersedia", message: "Unggah CV PDF terlebih dahulu." });
     } catch (error) {
       showError("Gagal memuat CV", error, "CV tidak dapat dimuat.");
     } finally {
       setLoading(false);
     }
+  }
+
+  function refreshCv() {
+    setLoading(true);
+    void loadCv();
   }
 
   async function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
@@ -216,24 +243,51 @@ export default function CvUploadPanel() {
   }
 
   async function analyzeCv() {
-    if (!cv) {
-      setDialog({ variant: "error", title: "CV belum dimuat", message: "Muat CV tersimpan atau unggah CV sebelum menjalankan analisis." });
-      return;
-    }
-
     setAnalysisLoading(true);
-    setAnalysis(null);
     try {
       const body = await responseJson(await fetch("/api/cv/analyze", {
         method: "POST",
         cache: "no-store",
       }));
-      setAnalysis(cvAnalysisSchema.parse(body));
+      setAnalysis(parseAnalysis(body));
     } catch (error) {
       showError("Analisis CV gagal", error, "CV tidak dapat dianalisis.");
     } finally {
       setAnalysisLoading(false);
     }
+  }
+
+  function requestDeleteCv() {
+    setDialog({
+      variant: "confirm",
+      title: "Hapus CV tersimpan?",
+      message: "File CV dan hasil analisis tersimpan akan dihapus permanen dari akun ini.",
+      action: "delete-cv",
+    });
+  }
+
+  async function deleteCv() {
+    setDialog(null);
+    setLoading(true);
+    try {
+      await responseJson(await fetch("/api/cv", {
+        method: "DELETE",
+        cache: "no-store",
+      }));
+      setCv(null);
+      setAnalysis(null);
+      setSelectedFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      setDialog({ variant: "success", title: "CV berhasil dihapus", message: "File CV dan hasil analisis tersimpan sudah dihapus dari akun ini." });
+    } catch (error) {
+      showError("Gagal menghapus CV", error, "CV tidak dapat dihapus.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function confirmDialogAction() {
+    if (dialog?.action === "delete-cv") void deleteCv();
   }
 
   return (
@@ -250,7 +304,7 @@ export default function CvUploadPanel() {
           <button
             className="button button-secondary"
             disabled={loading}
-            onClick={loadCv}
+            onClick={refreshCv}
             type="button"
           >
             {loading ? "Memuat..." : "Tampilkan CV tersimpan"}
@@ -291,6 +345,14 @@ export default function CvUploadPanel() {
               <a className="button button-secondary" href={cv.url} rel="noreferrer" target="_blank">
                 Buka PDF
               </a>
+              <button
+                className="button button-danger"
+                disabled={loading}
+                onClick={requestDeleteCv}
+                type="button"
+              >
+                Hapus CV
+              </button>
             </div>
             <iframe className="cv-preview" src={cv.url} title="Pratinjau CV PDF" />
           </section>
@@ -306,11 +368,13 @@ export default function CvUploadPanel() {
             </div>
             <button
               className="button button-primary"
-              disabled={analysisLoading || loading || !cv}
+              disabled={analysisLoading || loading}
               onClick={analyzeCv}
               type="button"
             >
-              {analysisLoading ? "Menganalisis..." : "Analisis kecocokan"}
+              {analysisLoading
+                ? (analysis ? "Menganalisis ulang..." : "Menganalisis...")
+                : (analysis ? "Analisis ulang" : "Analisis kecocokan")}
             </button>
           </div>
           <p className="cv-privacy-note">
@@ -325,6 +389,12 @@ export default function CvUploadPanel() {
           )}
           {analysis && (
             <div aria-live="polite" className="cv-analysis-results">
+              <p className="cv-score-disclaimer">
+                Hasil terakhir disimpan {new Intl.DateTimeFormat("id-ID", {
+                  dateStyle: "medium",
+                  timeStyle: "short",
+                }).format(new Date(analysis.analyzedAt))}. Hasil tetap tersedia sampai Anda menjalankan analisis ulang.
+              </p>
               <div className="cv-keywords">
                 <strong>Kata kunci CV</strong>
                 <div>{analysis.keywords.map((keyword) => <span key={keyword}>{keyword}</span>)}</div>
@@ -395,7 +465,7 @@ export default function CvUploadPanel() {
             aria-modal="true"
             className={`result-modal result-modal-${dialog.variant}`}
             ref={dialogRef}
-            role={dialog.variant === "error" ? "alertdialog" : "dialog"}
+            role={dialog.variant === "error" || dialog.variant === "confirm" ? "alertdialog" : "dialog"}
             tabIndex={-1}
           >
             <button
@@ -407,18 +477,27 @@ export default function CvUploadPanel() {
               ×
             </button>
             <span aria-hidden="true" className="result-modal-icon">
-              {dialog.variant === "success" ? "✓" : "!"}
+              {dialog.variant === "success" ? "✓" : dialog.variant === "confirm" ? "?" : "!"}
             </span>
             <h2 id="cv-modal-title">{dialog.title}</h2>
             <p id="cv-modal-description">{dialog.message}</p>
             <div className="result-modal-actions">
+              {dialog.variant === "confirm" && (
+                <button
+                  className="button button-secondary"
+                  onClick={() => setDialog(null)}
+                  type="button"
+                >
+                  Batal
+                </button>
+              )}
               <button
                 autoFocus
-                className={`button ${dialog.variant === "error" ? "button-danger" : "button-primary"}`}
-                onClick={() => setDialog(null)}
+                className={`button ${dialog.variant === "error" || dialog.variant === "confirm" ? "button-danger" : "button-primary"}`}
+                onClick={dialog.variant === "confirm" ? confirmDialogAction : () => setDialog(null)}
                 type="button"
               >
-                Mengerti
+                {dialog.variant === "confirm" ? "Hapus CV" : "Mengerti"}
               </button>
             </div>
           </div>

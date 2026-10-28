@@ -122,10 +122,44 @@ export async function POST(req: Request) {
       });
     if (error) throw new Error(error.message);
 
+    const { error: analysisError } = await supabase
+      .from("cv_analyses")
+      .delete()
+      .eq("owner_id", user.id);
+    if (analysisError) {
+      throw new Error(`CV berhasil disimpan, tetapi analisis lama gagal dihapus: ${analysisError.message}`);
+    }
+
     return await createCvResponse(supabase, objectPath, file.size, new Date().toISOString(), 201);
   } catch (error) {
     const message = errorMessage(error);
     console.error("[cv] Gagal menyimpan CV:", message);
+    return NextResponse.json({ error: message }, { status: 500, ...noStore });
+  }
+}
+
+export async function DELETE(req: Request) {
+  const user = await getRequestUser(req);
+  if (!user) return NextResponse.json({ error: "Sesi login berakhir." }, { status: 401, ...noStore });
+
+  try {
+    const supabase = db();
+    const objectPath = await findCvPath(supabase, user.id);
+    if (objectPath) {
+      const { error } = await supabase.storage.from(bucketName).remove([objectPath]);
+      if (error) throw new Error(error.message);
+    }
+
+    const { error: analysisError } = await supabase
+      .from("cv_analyses")
+      .delete()
+      .eq("owner_id", user.id);
+    if (analysisError) throw new Error(analysisError.message);
+
+    return NextResponse.json({ ok: true }, noStore);
+  } catch (error) {
+    const message = errorMessage(error);
+    console.error("[cv] Gagal menghapus CV:", message);
     return NextResponse.json({ error: message }, { status: 500, ...noStore });
   }
 }
