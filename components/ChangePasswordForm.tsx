@@ -56,7 +56,7 @@ export default function ChangePasswordForm() {
       <div className="section-heading">
         <div>
           <h2>Ganti password</h2>
-          <p>Password baru harus minimal 12 karakter.</p>
+          <p>Gunakan minimal 12 karakter dan pilih password unik yang belum pernah dipakai di layanan lain. Jika Chrome menawarkan menyimpan password baru, perbarui password yang tersimpan.</p>
         </div>
       </div>
 

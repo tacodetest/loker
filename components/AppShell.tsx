@@ -30,9 +30,19 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [logoutLoading, setLogoutLoading] = useState(false);
   const lastActivityAt = useRef(0);
   const sessionTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const endingSession = useRef(false);
   const currentPage = navigation.find(({ href }) => activePath(pathname, href)) ?? navigation[0];
 
+  useEffect(() => {
+    if (pathname === "/login") {
+      endingSession.current = false;
+      lastActivityAt.current = 0;
+    }
+  }, [pathname]);
+
   const endSession = useCallback(async () => {
+    if (endingSession.current) return;
+    endingSession.current = true;
     if (sessionTimeout.current) clearTimeout(sessionTimeout.current);
     setSessionGeneration((generation) => generation + 1);
     try {
@@ -41,6 +51,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     } catch (error) {
       console.error("[auth] Tidak dapat menghubungi endpoint logout:", error);
     }
+    setLogoutLoading(false);
     router.replace("/login");
   }, [router]);
 
