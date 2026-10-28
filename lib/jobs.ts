@@ -1,6 +1,7 @@
 import "server-only";
 import { db } from "./supabase";
 import { parsePostedTime } from "./posted";
+import type { AppUserId } from "./auth";
 
 export type JobCard = {
   job_url: string;
@@ -14,6 +15,7 @@ export type JobCard = {
 };
 
 type JobDetail = JobCard & { description: string | null };
+export type JobForMatching = JobDetail;
 
 export const JOBS_PAGE_SIZE = 25;
 const MAX_POST_AGE_DAYS = 7;
@@ -63,10 +65,11 @@ function matchesPeriod(job: JobCard, period: JobsPeriod, cutoff: Date, now: Date
   return period === "all" && isRecentJob(job, cutoff, now);
 }
 
-async function getRecentlyScrapedJobs(): Promise<JobCard[]> {
+async function getRecentlyScrapedJobs<T extends JobCard>(ownerId: AppUserId, columns: string): Promise<T[]> {
   const { data: sources, error: sourcesError } = await db()
     .from("sources")
     .select("url")
+    .eq("owner_id", ownerId)
     .ilike("url", "%jobstreet.%");
   if (sourcesError) {
     console.error("[jobs] Gagal memuat sumber lowongan:", sourcesError.message);
@@ -77,35 +80,39 @@ async function getRecentlyScrapedJobs(): Promise<JobCard[]> {
   if (sourceUrls.length === 0) return [];
 
   const cutoff = new Date(Date.now() - MAX_POST_AGE_DAYS * 24 * 60 * 60 * 1000).toISOString();
-  const jobs: JobCard[] = [];
+  const jobs: T[] = [];
 
   for (let offset = 0; ; offset += QUERY_BATCH_SIZE) {
     const { data, error } = await db()
       .from("jobs")
-      .select("job_url, title, company, location, salary, posted_time, source_url, scraped_at")
+      .select(columns)
+      .eq("owner_id", ownerId)
       .in("source_url", sourceUrls)
       .gte("scraped_at", cutoff)
       .order("scraped_at", { ascending: false })
       .order("job_url", { ascending: true })
-      .range(offset, offset + QUERY_BATCH_SIZE - 1);
+      .range(offset, offset + QUERY_BATCH_SIZE - 1)
+      .overrideTypes<T[], { merge: false }>();
     if (error) {
       console.error("[jobs] Gagal memuat lowongan:", error.message);
       throw new Error(`Gagal memuat lowongan: ${error.message}`);
     }
 
-    const batch = (data ?? []) as JobCard[];
+    const batch = data ?? [];
     jobs.push(...batch);
     if (batch.length < QUERY_BATCH_SIZE) return jobs;
   }
 }
 
-export async function getJobsPage(filters: JobsPageFilters) {
+export async function getJobsPage(filters: JobsPageFilters, ownerId: AppUserId) {
   const now = new Date();
   const cutoff = filters.period === "today"
     ? getJakartaDayStart(now)
     : new Date(now.getTime() - MAX_POST_AGE_DAYS * 24 * 60 * 60 * 1000);
   const search = filters.search?.trim().toLocaleLowerCase("id-ID");
-  const allJobs = await getRecentlyScrapedJobs();
+  const allJobs = await getRecentlyScrapedJobs<JobCard>(ownerId,
+    "job_url, title, company, location, salary, posted_time, source_url, scraped_at",
+  );
   const matchingJobs = allJobs
     .filter((job) =>
       matchesPeriod(job, filters.period === "today" ? "today" : "all", cutoff, now) &&
@@ -140,10 +147,11 @@ export async function getJobsPage(filters: JobsPageFilters) {
   };
 }
 
-export async function getJobDetail(jobUrl: string) {
+export async function getJobDetail(jobUrl: string, ownerId: AppUserId) {
   const { data, error } = await db()
     .from("jobs")
     .select("job_url, title, company, location, salary, description, posted_time, source_url, scraped_at")
+    .eq("owner_id", ownerId)
     .eq("job_url", jobUrl)
     .ilike("source_url", "%jobstreet.%")
     .maybeSingle();
@@ -161,11 +169,22 @@ export async function getJobDetail(jobUrl: string) {
   return job;
 }
 
-export async function getRecentJobStats() {
+export async function getRecentJobsForMatching(ownerId: AppUserId) {
+  const jobs = await getRecentlyScrapedJobs<JobForMatching>(ownerId,
+    "job_url, title, company, location, salary, description, posted_time, source_url, scraped_at",
+  );
+  const now = new Date();
+  const cutoff = new Date(now.getTime() - MAX_POST_AGE_DAYS * 24 * 60 * 60 * 1000);
+  return jobs.filter((job) => isRecentJob(job, cutoff, now));
+}
+
+export async function getRecentJobStats(ownerId: AppUserId) {
   const now = new Date();
   const cutoff = new Date(now.getTime() - MAX_POST_AGE_DAYS * 24 * 60 * 60 * 1000);
   const todayStart = getJakartaDayStart(now);
-  const jobs = await getRecentlyScrapedJobs();
+  const jobs = await getRecentlyScrapedJobs<JobCard>(ownerId,
+    "job_url, title, company, location, salary, posted_time, source_url, scraped_at",
+  );
   const recentJobs = jobs.filter((job) => isRecentJob(job, cutoff, now));
 
   return {

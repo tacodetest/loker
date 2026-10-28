@@ -1,15 +1,16 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
+import { getRequestUser } from "@/lib/auth";
 import { parseJobs, getAllowedSourceUrl } from "@/lib/scrape";
 import { saveScrapedJobs } from "@/lib/scrape-store";
-import { isAdmin } from "@/lib/supabase";
 
 export async function POST(req: Request) {
   if (process.env.NODE_ENV !== "development") {
     return NextResponse.json({ error: "Route replay hanya tersedia di development" }, { status: 404 });
   }
-  if (!isAdmin(req)) return NextResponse.json({ error: "Kunci admin salah" }, { status: 401 });
+  const user = await getRequestUser(req);
+  if (!user) return NextResponse.json({ error: "Sesi login berakhir." }, { status: 401 });
 
   const body: unknown = await req.json().catch(() => null);
   const url = body && typeof body === "object" ? (body as { url?: unknown }).url : null;
@@ -22,25 +23,25 @@ export async function POST(req: Request) {
   }
 
   try {
-    const filePath = path.join(process.cwd(), ".cache", "last-extract.json");
+    const filePath = path.join(process.cwd(), ".cache", `last-extract-${user.id}.json`);
     let response: unknown;
     try {
       response = JSON.parse(await readFile(filePath, "utf8"));
     } catch (error) {
       if (error instanceof Error && "code" in error && error.code === "ENOENT") {
         return NextResponse.json(
-          { error: "Data replay belum tersedia. Jalankan scrape Firecrawl lebih dulu atau letakkan JSON hasil Firecrawl di .cache/last-extract.json." },
+          { error: `Data replay untuk akun ini belum tersedia. Jalankan scrape Firecrawl lebih dulu atau letakkan JSON hasil Firecrawl di .cache/last-extract-${user.id}.json.` },
           { status: 404 },
         );
       }
       if (error instanceof SyntaxError) {
-        return NextResponse.json({ error: ".cache/last-extract.json bukan JSON yang valid" }, { status: 400 });
+        return NextResponse.json({ error: "File replay akun ini bukan JSON yang valid." }, { status: 400 });
       }
       throw error;
     }
 
     const rows = parseJobs(response, target.toString());
-    await saveScrapedJobs(rows, target.toString());
+    await saveScrapedJobs(rows, target.toString(), user.id);
     return NextResponse.json({ count: rows.length, replay: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Gagal memproses data replay";

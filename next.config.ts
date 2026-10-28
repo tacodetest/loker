@@ -5,6 +5,7 @@ const nextConfig: NextConfig = {
   experimental: {
     agentFeedback: true,
   },
+  serverExternalPackages: ["pdf-parse", "@napi-rs/canvas"],
   cacheComponents: true,
   partialPrefetching: true,
   turbopack: {

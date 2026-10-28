@@ -1,19 +1,20 @@
 import { createHash, randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { getRequestUser } from "@/lib/auth";
 import { createFirecrawlBatch, getBatchScrapeStatus } from "@/lib/firecrawl";
 import { getAllowedSourceUrl, parseJobs, saveLastExtract } from "@/lib/scrape";
 import { replaceSource, saveJobs } from "@/lib/scrape-store";
-import { db, isAdmin } from "@/lib/supabase";
+import { db } from "@/lib/supabase";
 
 export const maxDuration = 60;
 
 const requestSchema = z.object({
-  urls: z.array(z.string().trim().min(1).max(2048)).length(1),
+  urls: z.array(z.string().trim().min(1).max(2048)).min(1).max(1000),
   replacements: z.array(z.object({
     from: z.string().trim().min(1).max(2048),
     to: z.string().trim().min(1).max(2048),
-  })).max(1).optional().default([]),
+  })).max(1000).optional().default([]),
 });
 
 type BatchRow = {
@@ -45,7 +46,8 @@ function errorMessage(error: unknown) {
 }
 
 export async function POST(req: Request) {
-  if (!isAdmin(req)) return NextResponse.json({ error: "Kunci admin salah" }, { status: 401 });
+  const user = await getRequestUser(req);
+  if (!user) return NextResponse.json({ error: "Sesi login berakhir." }, { status: 401 });
   if (!process.env.FIRECRAWL_API_KEY) {
     return NextResponse.json({ error: "FIRECRAWL_API_KEY belum diisi" }, { status: 500 });
   }
@@ -53,7 +55,7 @@ export async function POST(req: Request) {
   const body: unknown = await req.json().catch(() => null);
   const parsed = requestSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ error: "Kirim tepat satu URL JobStreet dalam setiap permintaan." }, { status: 400 });
+    return NextResponse.json({ error: "Kirim 1 sampai 1.000 URL JobStreet dalam setiap permintaan." }, { status: 400 });
   }
 
   const urls = [...new Set(parsed.data.urls.map((value) => {
@@ -74,9 +76,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Data penggantian sumber tidak valid." }, { status: 400 });
   }
 
-  const adminKey = process.env.ADMIN_KEY;
-  if (!adminKey) return NextResponse.json({ error: "ADMIN_KEY belum diisi" }, { status: 500 });
-  const rateKey = createHash("sha256").update(adminKey).digest("hex");
+  const rateKey = createHash("sha256").update(`scrape:${user.id}`).digest("hex");
   try {
     const { data: allowed, error: rateError } = await db().rpc("consume_scrape_rate_limit", {
       p_rate_key: rateKey,
@@ -94,6 +94,7 @@ export async function POST(req: Request) {
     const id = randomUUID();
     const { error: insertError } = await db().from("scrape_batches").insert({
       id,
+      owner_id: user.id,
       requested_urls: validUrls,
       replacements,
       status: "pending",
@@ -111,7 +112,8 @@ export async function POST(req: Request) {
           status: "scraping",
           updated_at: new Date().toISOString(),
         })
-        .eq("id", id);
+        .eq("id", id)
+        .eq("owner_id", user.id);
       if (updateError) throw new Error(updateError.message);
       return NextResponse.json({ batchId: id, status: "pending", total: validUrls.length }, { status: 202 });
     } catch (error) {
@@ -121,7 +123,8 @@ export async function POST(req: Request) {
           outcome: { error: errorMessage(error) },
           updated_at: new Date().toISOString(),
         })
-        .eq("id", id);
+        .eq("id", id)
+        .eq("owner_id", user.id);
       throw error;
     }
   } catch (error) {
@@ -132,7 +135,8 @@ export async function POST(req: Request) {
 }
 
 export async function GET(req: Request) {
-  if (!isAdmin(req)) return NextResponse.json({ error: "Kunci admin salah" }, { status: 401 });
+  const user = await getRequestUser(req);
+  if (!user) return NextResponse.json({ error: "Sesi login berakhir." }, { status: 401 });
   const batchId = new URL(req.url).searchParams.get("batchId");
 
   try {
@@ -140,6 +144,7 @@ export async function GET(req: Request) {
       const { data, error } = await db()
         .from("scrape_batches")
         .select("id, requested_urls, status, total, completed, created_at")
+        .eq("owner_id", user.id)
         .in("status", ["pending", "scraping"])
         .order("created_at", { ascending: false })
         .limit(10);
@@ -154,6 +159,7 @@ export async function GET(req: Request) {
       .from("scrape_batches")
       .select("id, firecrawl_batch_id, requested_urls, replacements, status, total, completed, outcome")
       .eq("id", batchId)
+      .eq("owner_id", user.id)
       .maybeSingle();
     if (error) throw new Error(error.message);
     if (!data) return NextResponse.json({ error: "Batch tidak ditemukan." }, { status: 404 });
@@ -177,7 +183,8 @@ export async function GET(req: Request) {
       const completed = Math.min(progress.completed, batch.total);
       const { error: updateError } = await db().from("scrape_batches")
         .update({ status: "scraping", completed, total: batch.total, updated_at: new Date().toISOString() })
-        .eq("id", batch.id);
+        .eq("id", batch.id)
+        .eq("owner_id", user.id);
       if (updateError) throw new Error(updateError.message);
       return NextResponse.json({ status: "scraping", total: batch.total, completed });
     }
@@ -203,8 +210,8 @@ export async function GET(req: Request) {
       try {
         const rows = parseJobs({ jobs: extracted }, sourceUrl);
         const oldSourceUrl = replacements.get(sourceUrl);
-        if (oldSourceUrl) await replaceSource(oldSourceUrl, sourceUrl, rows);
-        else await saveJobs(rows, sourceUrl);
+        if (oldSourceUrl) await replaceSource(oldSourceUrl, sourceUrl, rows, user.id);
+        else await saveJobs(rows, sourceUrl, user.id);
         return { url: sourceUrl, status: "done", count: rows.length };
       } catch (error) {
         console.error(`[scrape] Gagal menyimpan hasil untuk ${sourceUrl}:`, errorMessage(error));
@@ -219,7 +226,7 @@ export async function GET(req: Request) {
       try {
         await saveLastExtract(JSON.stringify({
           jobs: jobsBySource.get(normalizedUrl(sourceResults[0].url)) ?? [],
-        }));
+        }), user.id);
       } catch (error) {
         console.error("[scrape] Gagal menyimpan cache replay lokal:", errorMessage(error));
       }
@@ -232,7 +239,8 @@ export async function GET(req: Request) {
         outcome: { sources: sourceResults },
         updated_at: new Date().toISOString(),
       })
-      .eq("id", batch.id);
+      .eq("id", batch.id)
+      .eq("owner_id", user.id);
     if (updateError) throw new Error(updateError.message);
 
     return NextResponse.json({ status, total: batch.total, completed, sources: sourceResults });

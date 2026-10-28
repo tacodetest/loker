@@ -1,5 +1,6 @@
 import "server-only";
 import { revalidatePath, revalidateTag } from "next/cache";
+import type { AppUserId } from "./auth";
 import { db } from "./supabase";
 import type { ScrapedJob } from "./scrape";
 
@@ -10,7 +11,7 @@ function invalidateJobs() {
   revalidatePath("/job");
 }
 
-export async function saveJobs(rows: ScrapedJob[], sourceUrl: string) {
+export async function saveJobs(rows: ScrapedJob[], sourceUrl: string, ownerId: AppUserId) {
   if (!rows.length) {
     throw new Error("Hasil kosong; data lowongan lama tidak diubah.");
   }
@@ -23,6 +24,7 @@ export async function saveJobs(rows: ScrapedJob[], sourceUrl: string) {
     scraped_at: scrapedAt,
   }));
   const { data, error } = await db().rpc("refresh_source_jobs", {
+    p_owner_id: ownerId,
     p_source_url: sourceUrl,
     p_jobs: jobs,
   });
@@ -36,8 +38,9 @@ export async function saveJobs(rows: ScrapedJob[], sourceUrl: string) {
   return Number(data ?? 0);
 }
 
-export async function removeSource(sourceUrl: string) {
+export async function removeSource(sourceUrl: string, ownerId: AppUserId) {
   const { data, error } = await db().rpc("delete_jobs_by_source", {
+    p_owner_id: ownerId,
     p_source_url: sourceUrl,
   });
   if (error) {
@@ -53,13 +56,14 @@ export async function replaceSource(
   oldSourceUrl: string,
   newSourceUrl: string,
   rows: ScrapedJob[],
+  ownerId: AppUserId,
 ) {
   if (!rows.length) {
     throw new Error("Hasil URL baru kosong; sumber lama tetap dipertahankan.");
   }
 
-  await saveJobs(rows, newSourceUrl);
-  const deletedJobs = await removeSource(oldSourceUrl);
+  await saveJobs(rows, newSourceUrl, ownerId);
+  const deletedJobs = await removeSource(oldSourceUrl, ownerId);
   console.info(`[scrape] Sumber diganti; ${oldSourceUrl} -> ${newSourceUrl}`);
   return { deletedJobs };
 }

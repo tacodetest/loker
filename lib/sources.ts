@@ -1,5 +1,6 @@
 import "server-only";
 import { connection } from "next/server";
+import type { AppUserId } from "./auth";
 import { getAllowedSourceUrl } from "./scrape";
 import { db } from "./supabase";
 
@@ -9,12 +10,13 @@ export type SavedSource = {
   job_count: number;
 };
 
-export async function getSavedSources(): Promise<SavedSource[]> {
+export async function getSavedSources(ownerId: AppUserId): Promise<SavedSource[]> {
   await connection();
   const supabase = db();
   const { data, error } = await supabase
     .from("sources")
     .select("url, last_scraped_at")
+    .eq("owner_id", ownerId)
     .order("created_at", { ascending: false });
   if (error) {
     console.error("[sources] Gagal memuat tautan:", error.message);
@@ -29,6 +31,7 @@ export async function getSavedSources(): Promise<SavedSource[]> {
     const { data: links, error: linksError } = await supabase
       .from("job_sources")
       .select("source_url")
+      .eq("owner_id", ownerId)
       .in("source_url", sourceUrls)
       .range(offset, offset + pageSize - 1);
     if (linksError) {

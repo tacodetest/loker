@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getJobDetail } from "@/lib/jobs";
+import { requireCurrentUser } from "@/lib/auth";
 
 type SearchParams = Promise<{ url?: string | string[] }>;
 
@@ -10,10 +11,11 @@ export default async function JobDetail({
   searchParams: SearchParams;
 }) {
   const params = await searchParams;
+  const user = await requireCurrentUser();
   const jobUrl = Array.isArray(params.url) ? params.url[0] : params.url;
   if (!jobUrl || jobUrl.length > 2048) notFound();
 
-  const job = await getJobDetail(jobUrl);
+  const job = await getJobDetail(jobUrl, user.id);
   if (!job) notFound();
 
   return (

@@ -1,8 +1,10 @@
 import AdminScrapePanel from "@/components/AdminScrapePanel";
 import { getSavedSources } from "@/lib/sources";
+import { requireCurrentUser } from "@/lib/auth";
 
 export default async function SourcesPage() {
-  const sources = await getSavedSources();
+  const user = await requireCurrentUser();
+  const sources = await getSavedSources(user.id);
   return (
     <main className="main-content">
       <header className="page-title-row">

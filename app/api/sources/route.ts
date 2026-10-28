@@ -1,17 +1,21 @@
 import { connection, NextResponse } from "next/server";
-import { db, isAdmin } from "@/lib/supabase";
+import { getRequestUser } from "@/lib/auth";
+import { db } from "@/lib/supabase";
 import { clearLastExtractCache, getAllowedSourceUrl } from "@/lib/scrape";
 import { removeSource } from "@/lib/scrape-store";
 
 const noStore = { headers: { "Cache-Control": "no-store, max-age=0" } };
 
-export async function GET() {
+export async function GET(request: Request) {
   await connection(); // pastikan selalu dijalankan saat ada request, tidak di-cache
+  const user = await getRequestUser(request);
+  if (!user) return NextResponse.json({ error: "Sesi login berakhir." }, { status: 401, ...noStore });
   try {
     const supabase = db();
     const { data, error } = await supabase
       .from("sources")
       .select("*")
+      .eq("owner_id", user.id)
       .order("created_at", { ascending: false });
     if (error) throw new Error(error.message);
     const jobstreetSources = (data ?? []).filter((source) => getAllowedSourceUrl(source.url));
@@ -24,6 +28,7 @@ export async function GET() {
       const { data: links, error: linksError } = await supabase
         .from("job_sources")
         .select("source_url, job_url")
+        .eq("owner_id", user.id)
         .in("source_url", sourceUrls)
         .range(offset, offset + pageSize - 1);
       if (linksError) throw new Error(linksError.message);
@@ -51,15 +56,15 @@ export async function GET() {
 }
 
 export async function DELETE(req: Request) {
-  if (!isAdmin(req))
-    return NextResponse.json({ error: "Kunci admin salah" }, { status: 401 });
+  const user = await getRequestUser(req);
+  if (!user) return NextResponse.json({ error: "Sesi login berakhir." }, { status: 401, ...noStore });
   const url = new URL(req.url).searchParams.get("url");
   const target = getAllowedSourceUrl(url);
   if (!target)
     return NextResponse.json({ error: "Hanya URL JobStreet yang dapat dihapus." }, { status: 400 });
   try {
-    const deletedJobs = await removeSource(target.toString());
-    await clearLastExtractCache();
+    const deletedJobs = await removeSource(target.toString(), user.id);
+    await clearLastExtractCache(user.id);
     return NextResponse.json({ ok: true, deletedJobs });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Gagal menghapus tautan.";

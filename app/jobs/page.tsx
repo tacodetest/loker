@@ -4,6 +4,7 @@ import { io } from "next/cache";
 import { getPostedAge } from "@/lib/job-age";
 import { getJobsPage, JOBS_PAGE_SIZE, type JobsPeriod } from "@/lib/jobs";
 import { JobsSkeleton } from "@/components/PageSkeletons";
+import { requireCurrentUser } from "@/lib/auth";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
@@ -49,11 +50,15 @@ export default function JobsPage({ searchParams }: { searchParams: SearchParams 
 
 async function JobsPageContent({ searchParams }: { searchParams: SearchParams }) {
   await io();
+  const user = await requireCurrentUser();
   const params = await searchParams;
   const search = firstValue(params.q);
   const period = safePeriod(firstValue(params.period), firstValue(params.days, 4));
   const page = safePage(firstValue(params.page, 10));
-  const { jobs, currentPage, totalJobs, totalPages } = await getJobsPage({ search, period, page });
+  const { jobs, currentPage, totalJobs, totalPages } = await getJobsPage(
+    { search, period, page },
+    user.id,
+  );
   const firstResult = totalJobs === 0 ? 0 : (currentPage - 1) * JOBS_PAGE_SIZE + 1;
   const lastResult = Math.min(currentPage * JOBS_PAGE_SIZE, totalJobs);
 

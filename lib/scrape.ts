@@ -195,16 +195,16 @@ export function parseJobs(response: unknown, sourceUrl: string): ScrapedJob[] {
   return rows;
 }
 
-export async function saveLastExtract(responseText: string) {
+export async function saveLastExtract(responseText: string, ownerId: "taufik" | "alya") {
   if (process.env.NODE_ENV !== "development") return;
   const cacheDirectory = path.join(process.cwd(), ".cache");
   await mkdir(cacheDirectory, { recursive: true });
-  await writeFile(path.join(cacheDirectory, "last-extract.json"), responseText, "utf8");
+  await writeFile(path.join(cacheDirectory, `last-extract-${ownerId}.json`), responseText, "utf8");
 }
 
-export async function clearLastExtractCache() {
+export async function clearLastExtractCache(ownerId: "taufik" | "alya") {
   try {
-    await unlink(path.join(process.cwd(), ".cache", "last-extract.json"));
+    await unlink(path.join(process.cwd(), ".cache", `last-extract-${ownerId}.json`));
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
     throw error;

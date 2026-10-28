@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
 import { getJobsPage } from "@/lib/jobs";
+import { getRequestUser } from "@/lib/auth";
 
 const noStore = { headers: { "Cache-Control": "no-store, max-age=0" } };
 
 export async function GET(req: Request) {
+  const user = await getRequestUser(req);
+  if (!user) return NextResponse.json({ error: "Sesi login berakhir." }, { status: 401, ...noStore });
   const search = new URL(req.url).searchParams;
   const query = search.get("q")?.trim().slice(0, 100) ?? "";
   const rawPage = search.get("page");
@@ -17,7 +20,7 @@ export async function GET(req: Request) {
     : "all";
 
   try {
-    const result = await getJobsPage({ search: query, page, period });
+    const result = await getJobsPage({ search: query, page, period }, user.id);
     return NextResponse.json(result, noStore);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Gagal memuat lowongan.";

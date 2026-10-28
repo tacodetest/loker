@@ -70,7 +70,6 @@ function statusLabel(status: ScrapeSource["status"]) {
 
 export default function AdminScrapePanel({ initialSources }: { initialSources: SavedSource[] }) {
   const router = useRouter();
-  const [adminKey, setAdminKey] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
   const [sources, setSources] = useState<SavedSource[]>(initialSources);
   const [activeBatches, setActiveBatches] = useState<ActiveBatch[]>([]);
@@ -126,7 +125,6 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
     batchResultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     try {
       const body = await responseJson(await fetch("/api/scrape", {
-        headers: { "x-admin-key": adminKey },
         cache: "no-store",
       }));
       setActiveBatches(Array.isArray(body.batches) ? body.batches as ActiveBatch[] : []);
@@ -142,7 +140,6 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
     for (let attempt = 0; attempt < 300; attempt += 1) {
       await wait(2000);
       const response = await fetch(`/api/scrape?batchId=${encodeURIComponent(batchId)}`, {
-        headers: { "x-admin-key": adminKey },
         cache: "no-store",
       });
       const body = await responseJson(response);
@@ -205,7 +202,6 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-admin-key": adminKey,
         },
         body: JSON.stringify({ urls: requestedUrls, replacements }),
       });
@@ -230,10 +226,6 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
   async function submitBatch(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const requestedUrl = sourceUrl.trim();
-    if (!adminKey.trim()) {
-      setDialog({ variant: "error", title: "Kunci admin diperlukan", message: "Masukkan kunci admin sebelum menyimpan tautan." });
-      return;
-    }
     if (!requestedUrl) {
       setDialog({ variant: "error", title: "URL diperlukan", message: "Masukkan URL sumber JobStreet." });
       return;
@@ -243,19 +235,23 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
   }
 
   async function refreshSource(sourceUrl: string) {
-    if (!adminKey.trim()) {
-      setDialog({ variant: "error", title: "Kunci admin diperlukan", message: "Masukkan kunci admin sebelum me-refresh tautan." });
+    await startBatch([sourceUrl]);
+  }
+
+  async function refreshAllSources() {
+    if (!sources.length) {
+      setDialog({ variant: "error", title: "Belum ada tautan", message: "Tambahkan tautan JobStreet terlebih dahulu." });
       return;
     }
-    await startBatch([sourceUrl]);
+    if (sources.length > 1000) {
+      setDialog({ variant: "error", title: "Terlalu banyak tautan", message: "Maksimal 1.000 tautan dapat diperbarui dalam satu batch." });
+      return;
+    }
+    await startBatch(sources.map((source) => source.url));
   }
 
   async function replaceSourceUrl(sourceUrl: string) {
     const newUrl = replacementUrls[sourceUrl]?.trim();
-    if (!adminKey.trim()) {
-      setDialog({ variant: "error", title: "Kunci admin diperlukan", message: "Masukkan kunci admin sebelum mengganti URL." });
-      return;
-    }
     if (!newUrl || newUrl === sourceUrl) {
       setDialog({ variant: "error", title: "URL pengganti tidak valid", message: "Masukkan URL pengganti yang berbeda dari URL saat ini." });
       return;
@@ -264,10 +260,6 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
   }
 
   async function deleteSource(sourceUrl: string) {
-    if (!adminKey.trim()) {
-      setDialog({ variant: "error", title: "Kunci admin diperlukan", message: "Masukkan kunci admin sebelum menghapus tautan." });
-      return;
-    }
     setDialog({
       variant: "confirm",
       title: "Hapus tautan ini?",
@@ -282,7 +274,6 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
     try {
       const response = await fetch(`/api/sources?url=${encodeURIComponent(sourceUrl)}`, {
         method: "DELETE",
-        headers: { "x-admin-key": adminKey },
       });
       await responseJson(response);
       setDialog({ variant: "success", title: "Tautan berhasil dihapus", message: "Sumber dan lowongan yatim terkait sudah dihapus." });
@@ -296,7 +287,7 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
   }
 
   async function resumeBatch() {
-    if (!task || !adminKey.trim()) return;
+    if (!task) return;
     setDialog(null);
     setLoading(true);
     batchSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -358,16 +349,6 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
           <div className="section-heading">
             <div><h2>Tambah tautan</h2><p>Masukkan satu URL JobStreet, lalu simpan sebelum menambahkan URL berikutnya.</p></div>
           </div>
-          <label className="field-label" htmlFor="admin-key">Kunci admin</label>
-          <input
-            autoComplete="current-password"
-            className="text-input"
-            id="admin-key"
-            onChange={(event) => setAdminKey(event.target.value)}
-            placeholder="Masukkan kunci admin"
-            type="password"
-            value={adminKey}
-          />
           <form onSubmit={submitBatch}>
             <label className="field-label" htmlFor="source-url">URL JobStreet</label>
             <input
@@ -386,10 +367,10 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
               </button>
             </div>
           </form>
-          <p className="credit-hint">Setiap URL diproses satu per satu di server menggunakan Firecrawl.</p>
+          <p className="credit-hint">Tautan diproses sebagai batch asynchronous oleh Firecrawl.</p>
 
           <div className="source-tools">
-            <button className="button button-secondary" disabled={!adminKey.trim() || loading} onClick={loadActiveBatches} type="button">
+            <button className="button button-secondary" disabled={loading} onClick={loadActiveBatches} type="button">
               Muat progres batch
             </button>
             {task && !loading && batchActive && (
@@ -404,7 +385,16 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
         <section className="content-card source-table-card">
           <div className="section-heading">
             <div><h2>Tautan tersimpan <span className="count-pill">{sources.length}</span></h2><p>Refresh mengambil ulang URL yang sama. Gunakan Ganti URL hanya jika tautannya berubah.</p></div>
+            <button
+              className="button button-primary"
+              disabled={loading || sources.length === 0}
+              onClick={refreshAllSources}
+              type="button"
+            >
+              {loading ? "Memproses..." : "Perbarui semua tautan"}
+            </button>
           </div>
+          <p className="source-tool-hint">Perbarui semua menjalankan Firecrawl untuk setiap tautan tersimpan; progres dan jumlah lowongan per tautan akan tampil di bagian bawah.</p>
 
           {sources.length === 0 ? (
             <div className="empty-inline">Belum ada tautan tersimpan. Tambahkan URL di formulir.</div>

@@ -4,6 +4,7 @@ import { io } from "next/cache";
 import { getDashboardStats } from "@/lib/dashboard";
 import { getPostedAge } from "@/lib/job-age";
 import { getJobsPage } from "@/lib/jobs";
+import { requireCurrentUser } from "@/lib/auth";
 import { DashboardSkeleton } from "@/components/PageSkeletons";
 
 function formatDate(value: string | null) {
@@ -21,7 +22,11 @@ export default function Home() {
 
 async function HomeContent() {
   await io();
-  const [{ jobs }, stats] = await Promise.all([getJobsPage({}), getDashboardStats()]);
+  const user = await requireCurrentUser();
+  const [{ jobs }, stats] = await Promise.all([
+    getJobsPage({}, user.id),
+    getDashboardStats(user.id),
+  ]);
   const recentJobs = jobs.slice(0, 5);
 
   return (
