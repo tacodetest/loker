@@ -334,14 +334,6 @@ a { color: inherit; }
 .page-error h1 { margin: 0; font-size: clamp(1.35rem, 3vw, 1.75rem); letter-spacing: -.04em; }
 .page-error-description { max-width: 520px; margin: 9px 0 0; color: var(--muted); font-size: .88rem; }
 .page-error-actions { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 22px; }
-.login-page { display: grid; min-height: 100vh; place-items: center; padding: 24px; background: radial-gradient(ellipse at top, #eaf1ff, transparent 58%), var(--page); }
-.login-card { width: min(420px, 100%); padding: clamp(24px, 5vw, 38px); }
-.login-card h1 { margin: 0; font-size: 1.8rem; letter-spacing: -.05em; }
-.login-description { margin: 6px 0 23px; color: var(--muted); font-size: .86rem; }
-.login-form { display: grid; gap: 10px; }
-.login-form .field-label { margin-top: 4px; }
-.login-form .button { width: 100%; margin-top: 9px; }
-.login-error { margin: 2px 0 0; color: var(--red); font-size: .8rem; }
 .count-pill { display: inline-grid; min-width: 22px; height: 22px; margin-left: 3px; padding: 0 5px; place-items: center; border-radius: 20px; background: var(--blue-soft); color: var(--blue); font-size: .7rem; vertical-align: 1px; }
 .source-list { display: grid; }
 .source-row { display: flex; min-width: 0; align-items: center; gap: 12px; padding: 14px 0; border-top: 1px solid #edf0f5; }

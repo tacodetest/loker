@@ -1,0 +1,558 @@
+/* Login page styles. */
+.lg-stage {
+  --lg-bg: #0b0f17;
+  --lg-surface: #121926;
+  --lg-text: #e8edf4;
+  --lg-muted: #8b97a8;
+  --lg-border: #263041;
+  --lg-accent: #4f8cff;
+  --lg-danger: #ff6b6b;
+
+  --mx: 50%;
+  --my: 40%;
+}
+
+@property --lg-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+.lg-stage {
+  position: relative;
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  overflow: hidden;
+  background: var(--lg-bg);
+  color: var(--lg-text);
+  isolation: isolate;
+}
+
+/* ---------- Latar ---------- */
+.lg-bg {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+
+.lg-blob {
+  position: absolute;
+  width: 46vmax;
+  height: 46vmax;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 30% 30%,
+    var(--lg-accent),
+    transparent 65%
+  );
+  filter: blur(70px);
+  opacity: 0.28;
+  will-change: transform;
+}
+.lg-blob-a {
+  top: -18vmax;
+  left: -12vmax;
+  animation: lg-drift-a 22s ease-in-out infinite alternate;
+}
+.lg-blob-b {
+  bottom: -22vmax;
+  right: -14vmax;
+  opacity: 0.2;
+  animation: lg-drift-b 28s ease-in-out infinite alternate;
+}
+.lg-blob-c {
+  top: 35%;
+  left: 55%;
+  width: 26vmax;
+  height: 26vmax;
+  opacity: 0.14;
+  animation: lg-drift-c 18s ease-in-out infinite alternate;
+}
+
+@keyframes lg-drift-a {
+  to {
+    transform: translate(18vmax, 12vmax) scale(1.15);
+  }
+}
+@keyframes lg-drift-b {
+  to {
+    transform: translate(-20vmax, -10vmax) scale(0.9);
+  }
+}
+@keyframes lg-drift-c {
+  to {
+    transform: translate(-14vmax, 16vmax) scale(1.3);
+  }
+}
+
+.lg-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(var(--lg-border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--lg-border) 1px, transparent 1px);
+  background-size: 48px 48px;
+  opacity: 0.45;
+  /* grid hanya terlihat di sekitar kursor */
+  -webkit-mask-image: radial-gradient(
+    260px circle at var(--mx) var(--my),
+    #000,
+    transparent 70%
+  );
+  mask-image: radial-gradient(
+    260px circle at var(--mx) var(--my),
+    #000,
+    transparent 70%
+  );
+}
+
+.lg-spotlight {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    420px circle at var(--mx) var(--my),
+    color-mix(in srgb, var(--lg-accent) 14%, transparent),
+    transparent 70%
+  );
+}
+
+/* ---------- Kartu ---------- */
+.lg-card {
+  position: relative;
+  width: min(100%, 420px);
+  padding: 40px 34px 34px;
+  border-radius: 22px;
+  background: color-mix(in srgb, var(--lg-surface) 82%, transparent);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 30px 80px -30px rgb(0 0 0 / 0.55);
+  animation: lg-card-in 0.9s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Garis tepi berputar */
+.lg-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  padding: 1.5px;
+  border-radius: inherit;
+  background: conic-gradient(
+    from var(--lg-angle),
+    var(--lg-border) 0 55%,
+    var(--lg-accent) 80%,
+    var(--lg-border) 100%
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box exclude,
+    linear-gradient(#000 0 0);
+  animation: lg-spin 7s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes lg-spin {
+  to {
+    --lg-angle: 360deg;
+  }
+}
+
+@keyframes lg-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(28px) scale(0.96);
+    filter: blur(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: blur(0);
+  }
+}
+
+.lg-shake {
+  animation: lg-shake 0.5s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+@keyframes lg-shake {
+  10%,
+  90% {
+    transform: translateX(-2px);
+  }
+  20%,
+  80% {
+    transform: translateX(4px);
+  }
+  30%,
+  50%,
+  70% {
+    transform: translateX(-7px);
+  }
+  40%,
+  60% {
+    transform: translateX(7px);
+  }
+}
+
+/* ---------- Header ---------- */
+.lg-head {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 26px;
+}
+.lg-head,
+.lg-field,
+.lg-submit {
+  animation: lg-rise 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: calc(0.25s + var(--i, 0) * 0.09s);
+}
+@keyframes lg-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.lg-eyebrow {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  color: var(--lg-accent);
+}
+.lg-head h1 {
+  margin: 0;
+  font-size: clamp(2rem, 6vw, 2.5rem);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  background: linear-gradient(
+    100deg,
+    var(--lg-text) 30%,
+    var(--lg-accent) 50%,
+    var(--lg-text) 70%
+  );
+  background-size: 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: lg-sheen 6s ease-in-out 1.2s infinite;
+}
+@keyframes lg-sheen {
+  0%,
+  60% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+.lg-desc {
+  margin: 0;
+  color: var(--lg-muted);
+  font-size: 0.95rem;
+}
+
+/* Ikon orbit */
+.lg-orbit {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  margin-bottom: 14px;
+  display: block;
+}
+.lg-orbit i {
+  position: absolute;
+  inset: 0;
+  border: 1.5px solid color-mix(in srgb, var(--lg-accent) 55%, transparent);
+  border-radius: 50%;
+  animation: lg-orbit 5s linear infinite;
+}
+.lg-orbit i:nth-child(1) {
+  transform: rotateX(70deg);
+}
+.lg-orbit i:nth-child(2) {
+  transform: rotateY(70deg);
+  animation-direction: reverse;
+  animation-duration: 7s;
+}
+.lg-orbit i:nth-child(3) {
+  inset: 15px;
+  border: 0;
+  background: var(--lg-accent);
+  box-shadow: 0 0 18px var(--lg-accent);
+  animation: lg-pulse 2.4s ease-in-out infinite;
+}
+@keyframes lg-orbit {
+  to {
+    rotate: 360deg;
+  }
+}
+@keyframes lg-pulse {
+  50% {
+    transform: scale(1.35);
+    opacity: 0.7;
+  }
+}
+
+/* ---------- Form ---------- */
+.lg-form {
+  display: grid;
+  gap: 18px;
+}
+
+.lg-field {
+  position: relative;
+}
+.lg-field input {
+  width: 100%;
+  padding: 24px 44px 8px 14px;
+  font: inherit;
+  color: var(--lg-text);
+  background: color-mix(in srgb, var(--lg-bg) 55%, transparent);
+  border: 1px solid var(--lg-border);
+  border-radius: 12px;
+  outline: none;
+  transition:
+    border-color 0.25s,
+    background 0.25s,
+    box-shadow 0.25s;
+}
+.lg-field input:hover {
+  border-color: color-mix(in srgb, var(--lg-accent) 45%, var(--lg-border));
+}
+.lg-field input:focus {
+  border-color: var(--lg-accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--lg-accent) 18%, transparent);
+}
+
+/* Label melayang */
+.lg-field label {
+  position: absolute;
+  left: 15px;
+  top: 17px;
+  color: var(--lg-muted);
+  font-size: 0.95rem;
+  pointer-events: none;
+  transform-origin: left top;
+  transition:
+    transform 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+    color 0.25s;
+}
+.lg-field input:focus + label,
+.lg-field input:not(:placeholder-shown) + label {
+  transform: translateY(-10px) scale(0.76);
+  color: var(--lg-accent);
+}
+
+/* Garis cahaya di bawah input */
+.lg-line {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--lg-accent),
+    transparent
+  );
+  transform: scaleX(0);
+  transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+  pointer-events: none;
+}
+.lg-field input:focus ~ .lg-line {
+  transform: scaleX(1);
+}
+
+/* Tombol mata */
+.lg-eye {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  translate: 0 -50%;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  color: var(--lg-muted);
+  background: transparent;
+  border: 0;
+  border-radius: 10px;
+  cursor: pointer;
+  transition:
+    color 0.2s,
+    background 0.2s;
+}
+.lg-eye:hover {
+  color: var(--lg-text);
+  background: color-mix(in srgb, var(--lg-accent) 14%, transparent);
+}
+.lg-eye:focus-visible {
+  outline: 2px solid var(--lg-accent);
+  outline-offset: 1px;
+}
+.lg-eye-slash {
+  stroke-dasharray: 24;
+  stroke-dashoffset: 24;
+  transition: stroke-dashoffset 0.3s ease;
+}
+.lg-eye[aria-pressed="false"] .lg-eye-slash {
+  stroke-dashoffset: 0;
+}
+
+/* Error */
+.lg-error {
+  margin: -4px 0 0;
+  padding: 10px 12px;
+  font-size: 0.88rem;
+  color: var(--lg-danger);
+  background: color-mix(in srgb, var(--lg-danger) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--lg-danger) 35%, transparent);
+  border-radius: 10px;
+  animation: lg-error-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes lg-error-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---------- Tombol ---------- */
+.lg-submit {
+  position: relative;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 50px;
+  padding: 0 20px;
+  font: inherit;
+  font-weight: 600;
+  color: #fff;
+  background: var(--lg-accent);
+  border: 0;
+  border-radius: 12px;
+  cursor: pointer;
+  transition:
+    transform 0.2s,
+    box-shadow 0.3s,
+    filter 0.2s;
+  box-shadow: 0 10px 28px -10px var(--lg-accent);
+}
+.lg-submit::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    110deg,
+    transparent 30%,
+    rgb(255 255 255 / 0.35) 50%,
+    transparent 70%
+  );
+  transform: translateX(-120%);
+}
+.lg-submit:hover:not(:disabled)::after {
+  transform: translateX(120%);
+  transition: transform 0.8s ease;
+}
+.lg-submit:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 16px 34px -10px var(--lg-accent);
+}
+.lg-submit:active:not(:disabled) {
+  transform: translateY(0) scale(0.98);
+}
+.lg-submit:focus-visible {
+  outline: 2px solid var(--lg-text);
+  outline-offset: 3px;
+}
+.lg-submit:disabled {
+  cursor: progress;
+  filter: saturate(0.85);
+}
+
+.lg-spinner {
+  width: 0;
+  height: 18px;
+  opacity: 0;
+  border: 2px solid rgb(255 255 255 / 0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  transition:
+    width 0.25s,
+    opacity 0.25s;
+}
+.lg-submit[data-state="loading"] .lg-spinner {
+  width: 18px;
+  opacity: 1;
+  animation: lg-rotate 0.7s linear infinite;
+}
+@keyframes lg-rotate {
+  to {
+    rotate: 360deg;
+  }
+}
+
+.lg-check {
+  width: 0;
+  opacity: 0;
+  stroke-dasharray: 26;
+  stroke-dashoffset: 26;
+}
+.lg-submit[data-state="success"] .lg-check {
+  width: 18px;
+  opacity: 1;
+  animation: lg-draw 0.45s 0.05s ease forwards;
+}
+@keyframes lg-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Saat berhasil: kartu memudar keluar */
+.lg-stage[data-success="true"] .lg-card {
+  animation: lg-out 0.7s cubic-bezier(0.7, 0, 0.84, 0) 0.3s forwards;
+}
+@keyframes lg-out {
+  to {
+    opacity: 0;
+    transform: translateY(-16px) scale(1.04);
+    filter: blur(6px);
+  }
+}
+
+/* ---------- Mobile ---------- */
+@media (max-width: 480px) {
+  .lg-card {
+    padding: 32px 22px 26px;
+    border-radius: 18px;
+  }
+}
+
+/* ---------- Hormati preferensi pengguna ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .lg-stage *,
+  .lg-stage *::before,
+  .lg-stage *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
