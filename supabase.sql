@@ -287,6 +287,19 @@ alter table scrape_batches enable row level security;
 revoke all on scrape_batches from public, anon, authenticated;
 grant all on scrape_batches to service_role;
 
+create table if not exists scheduled_scrape_runs (
+  owner_id text not null check (owner_id in ('taufik', 'alya')),
+  slot_key text not null,
+  batch_id uuid,
+  status text not null check (status in ('starting', 'started', 'skipped', 'failed')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (owner_id, slot_key)
+);
+alter table scheduled_scrape_runs enable row level security;
+revoke all on scheduled_scrape_runs from public, anon, authenticated;
+grant all on scheduled_scrape_runs to service_role;
+
 create table if not exists scrape_rate_limits (
   rate_key text primary key,
   window_started_at timestamptz not null,

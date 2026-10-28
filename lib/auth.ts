@@ -14,7 +14,7 @@ const users: Record<AppUserId, AppUser> = {
   alya: { id: "alya", name: "Alya" },
 };
 
-function isAppUserId(value: unknown): value is AppUserId {
+export function isAppUserId(value: unknown): value is AppUserId {
   return value === "taufik" || value === "alya";
 }
 

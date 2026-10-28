@@ -3,8 +3,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getRequestUser } from "@/lib/auth";
 import { createFirecrawlBatch, getBatchScrapeStatus } from "@/lib/firecrawl";
-import { getAllowedSourceUrl, parseJobs, saveLastExtract } from "@/lib/scrape";
-import { replaceSource, saveJobs } from "@/lib/scrape-store";
+import { finishScrapeBatch, normalizedScrapeUrl, type SourceOutcome } from "@/lib/finish-scrape-batch";
+import { getAllowedSourceUrl, saveLastExtract } from "@/lib/scrape";
 import { db } from "@/lib/supabase";
 
 export const maxDuration = 60;
@@ -27,19 +27,6 @@ type BatchRow = {
   completed: number;
   outcome: { sources?: SourceOutcome[]; error?: string } | null;
 };
-
-type SourceOutcome = {
-  url: string;
-  status: "done" | "failed";
-  count: number;
-  error?: string;
-};
-
-function normalizedUrl(value: string) {
-  const url = new URL(value);
-  url.hash = "";
-  return url.toString();
-}
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Terjadi kesalahan yang tidak diketahui.";
@@ -189,61 +176,22 @@ export async function GET(req: Request) {
       return NextResponse.json({ status: "scraping", total: batch.total, completed });
     }
 
-    const jobsBySource = new Map(
-      Object.entries(progress.jobsBySource).map(([url, jobs]) => [normalizedUrl(url), jobs]),
-    );
-    const errorsBySource = new Map(
-      Object.entries(progress.errorsBySource).map(([url, message]) => [normalizedUrl(url), message]),
-    );
-    const replacements = new Map(batch.replacements.map((replacement) => [replacement.to, replacement.from]));
-    const sourceResults = await Promise.all(batch.requested_urls.map(async (sourceUrl): Promise<SourceOutcome> => {
-      const extracted = jobsBySource.get(normalizedUrl(sourceUrl)) ?? [];
-      if (!extracted.length) {
-        return {
-          url: sourceUrl,
-          status: "failed",
-          count: 0,
-          error: errorsBySource.get(normalizedUrl(sourceUrl)) ?? "Tidak ada lowongan valid dari Firecrawl.",
-        };
-      }
-
-      try {
-        const rows = parseJobs({ jobs: extracted }, sourceUrl);
-        const oldSourceUrl = replacements.get(sourceUrl);
-        if (oldSourceUrl) await replaceSource(oldSourceUrl, sourceUrl, rows, user.id);
-        else await saveJobs(rows, sourceUrl, user.id);
-        return { url: sourceUrl, status: "done", count: rows.length };
-      } catch (error) {
-        console.error(`[scrape] Gagal menyimpan hasil untuk ${sourceUrl}:`, errorMessage(error));
-        return { url: sourceUrl, status: "failed", count: 0, error: errorMessage(error) };
-      }
-    }));
-
-    const succeeded = sourceResults.some((result) => result.status === "done");
-    const status = succeeded ? "done" : "failed";
-    const completed = sourceResults.length;
-    if (sourceResults.length === 1 && sourceResults[0].status === "done") {
+    const result = await finishScrapeBatch(batch, user.id, progress);
+    if (result.sources.length === 1 && result.sources[0].status === "done") {
       try {
         await saveLastExtract(JSON.stringify({
-          jobs: jobsBySource.get(normalizedUrl(sourceResults[0].url)) ?? [],
+          jobs: progress.jobsBySource[normalizedScrapeUrl(result.sources[0].url)] ?? [],
         }), user.id);
       } catch (error) {
         console.error("[scrape] Gagal menyimpan cache replay lokal:", errorMessage(error));
       }
     }
-    const { error: updateError } = await db().from("scrape_batches")
-      .update({
-        status,
-        total: batch.total,
-        completed,
-        outcome: { sources: sourceResults },
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", batch.id)
-      .eq("owner_id", user.id);
-    if (updateError) throw new Error(updateError.message);
-
-    return NextResponse.json({ status, total: batch.total, completed, sources: sourceResults });
+    return NextResponse.json({
+      status: result.status,
+      total: batch.total,
+      completed: result.sources.length,
+      sources: result.sources,
+    });
   } catch (error) {
     const message = errorMessage(error);
     console.error("[scrape] Gagal memeriksa batch:", message);

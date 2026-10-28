@@ -98,7 +98,7 @@ function apiKey() {
   return key;
 }
 
-export async function createFirecrawlBatch(urls: string[]) {
+export async function createFirecrawlBatch(urls: string[], webhookUrl?: string) {
   if (!urls.length) throw new Error("Setidaknya satu URL diperlukan.");
   const key = apiKey();
   const response = await fetch("https://api.firecrawl.dev/v2/batch/scrape", {
@@ -121,6 +121,9 @@ export async function createFirecrawlBatch(urls: string[]) {
       maxAge: 10 * 60 * 1000,
       maxConcurrency: 5,
       ignoreInvalidURLs: false,
+      ...(webhookUrl
+        ? { webhook: { url: webhookUrl, events: ["completed", "failed"] } }
+        : {}),
     }),
     signal: AbortSignal.timeout(20000),
     cache: "no-store",

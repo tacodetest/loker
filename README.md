@@ -14,11 +14,14 @@ Tambahkan variabel berikut ke `.env.local`:
 
 ```env
 FIRECRAWL_API_KEY=...
+FIRECRAWL_WEBHOOK_SECRET=...
 SUPABASE_URL=...
 SUPABASE_SERVICE_ROLE_KEY=...
 GEMINI_API_KEY=...
 TAUFIK_PASSWORD=...
 ALYA_PASSWORD=...
+APP_BASE_URL=https://your-production-domain.vercel.app
+CRON_SECRET=...
 ```
 
 Username tetap `taufik` dan `alya`. Jalankan `supabase.sql` untuk menyiapkan tabel login, sesi, dan migrasi kepemilikan data; semua data yang sudah ada ditetapkan ke akun Taufik, sedangkan akun Alya mulai dengan ruang data terpisah. `TAUFIK_PASSWORD` dan `ALYA_PASSWORD` hanya dipakai untuk memindahkan password lama ke tabel login pada login pertama setiap akun. Setelah kedua akun berhasil login, variabel tersebut dapat dihapus dari environment lokal dan Vercel. Password tersimpan sebagai hash scrypt dan dapat diganti dari menu **Akun** tanpa mengubah environment Vercel. Login membuat cookie sesi HTTP-only, membatasi satu sesi aktif per username, dan otomatis berakhir setelah 30 menit tanpa aktivitas.
@@ -40,6 +43,12 @@ Penggantian URL akan mengambil dan menyimpan hasil URL baru terlebih dahulu. Dat
 Daftar lowongan dirender sebagai Server Component dengan pagination bernomor, urutan waktu posting terbaru (waktu yang terbaca lebih dulu, lalu data tanpa waktu posting berdasarkan waktu scrape), pencarian judul pekerjaan, dan filter **Hari ini** atau **Semua (7 hari)**. Filter Hari ini mengikuti tanggal kalender Asia/Jakarta dan hanya menyertakan waktu posting yang terbaca; Semua mencakup lowongan yang diposting dalam tujuh hari terakhir serta data yang baru di-scrape dalam rentang tersebut tetapi waktu postingnya tidak tersedia. Nomor halaman dan jumlah hasil menyesuaikan filter. Query Supabase dan halaman detail juga menerapkan batas 7 hari. Perusahaan dan lokasi ditentukan melalui filter di URL sumber JobStreet. Hanya lowongan JobStreet yang ditampilkan. Halaman daftar hanya mengambil kolom ringan, dan deskripsi diambil saat detail lowongan dibuka. Data daftar, detail, dan ringkasan dibaca langsung dari Supabase agar perubahan SQL langsung terlihat tanpa menunggu cache.
 
 Endpoint scrape hanya menerima URL HTTP/HTTPS pada domain JobStreet (maksimal 1.000 URL per batch), memerlukan sesi login, dan dibatasi lima permintaan per menit per akun. Data sumber, lowongan, batch scrape, dan file CV dipisahkan berdasarkan akun; sesi pengguna lain tidak dapat mengaksesnya. Firecrawl mengekstrak `job_title`, `company_name`, `location`, `job_description`, dan `posted_time`, serta `job_url` agar detail lowongan dapat dibuka. `posted_time` disimpan sebagai teks persis seperti yang tampil pada kartu; filter dan umur posting dihitung dari teks itu dengan waktu scrape sebagai acuan. `FIRECRAWL_API_KEY` dan Supabase service-role key hanya digunakan server-side.
+
+## Scrape otomatis dua kali sehari
+
+Setelah menjalankan `supabase.sql`, tambahkan `APP_BASE_URL` (URL production HTTPS), `CRON_SECRET` (secret acak panjang), dan `FIRECRAWL_WEBHOOK_SECRET` (signing secret dari pengaturan Advanced Firecrawl) ke environment production Vercel. Buat job di cron-job.org dengan metode `POST` ke `https://<domain-production>/api/cron/scrape`, header `Authorization: Bearer <CRON_SECRET>`, dan jadwal `0 0,12 * * *` dengan zona waktu `Asia/Jakarta` (00.00 dan 12.00 WIB). Jangan menaruh secret di URL.
+
+Endpoint terjadwal memproses tautan tersimpan untuk akun Taufik dan Alya, mencegah duplikasi per slot jadwal, dan melewati akun yang masih memiliki batch aktif. Firecrawl mengirim callback hasil setelah batch selesai; callback memverifikasi HMAC `X-Firecrawl-Signature` sebelum menyimpan lowongan. Karena paket Vercel Hobby hanya mengizinkan Cron Vercel sekali sehari, pemicu dua kali sehari berasal dari cron-job.org; pemanggilan endpoint dan scrape tetap menggunakan kuota fungsi Vercel dan kredit Firecrawl. Pastikan project Firecrawl memiliki signing secret yang sama dengan `FIRECRAWL_WEBHOOK_SECRET`.
 
 ## Replay hasil Firecrawl tanpa kredit
 
