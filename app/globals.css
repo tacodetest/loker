@@ -255,6 +255,8 @@ a { color: inherit; }
 .text-input { display: block; width: 100%; min-height: 42px; padding: 9px 11px; border: 1px solid #dce3ec; border-radius: 8px; background: white; color: var(--ink); }
 .text-input::placeholder { color: #a1acba; }
 .text-input:focus { border-color: #8daadc; outline: 3px solid rgb(71 117 209 / 10%); }
+.account-password-form { width: min(620px, 100%); }
+.account-password-actions { display: flex; justify-content: flex-end; margin-top: 18px; }
 .source-url-input { min-height: 42px; font-size: .78rem; }
 .upload-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; }
 .upload-footer > span { color: #8a96a7; font-size: .68rem; }

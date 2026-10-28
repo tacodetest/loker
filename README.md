@@ -21,7 +21,7 @@ TAUFIK_PASSWORD=...
 ALYA_PASSWORD=...
 ```
 
-Atur `TAUFIK_PASSWORD` dan `ALYA_PASSWORD` dengan password yang telah disepakati di environment server atau `.env.local` lokal; jangan commit atau membagikan file itu. Username tetap `taufik` dan `alya`. Login membuat cookie sesi HTTP-only, membatasi satu sesi aktif per username, dan otomatis berakhir setelah 30 menit tanpa aktivitas. Jalankan `supabase.sql` untuk menyiapkan tabel sesi dan migrasi kepemilikan data; semua data yang sudah ada ditetapkan ke akun Taufik, sedangkan akun Alya mulai dengan ruang data terpisah.
+Username tetap `taufik` dan `alya`. Jalankan `supabase.sql` untuk menyiapkan tabel login, sesi, dan migrasi kepemilikan data; semua data yang sudah ada ditetapkan ke akun Taufik, sedangkan akun Alya mulai dengan ruang data terpisah. `TAUFIK_PASSWORD` dan `ALYA_PASSWORD` hanya dipakai untuk memindahkan password lama ke tabel login pada login pertama setiap akun. Setelah kedua akun berhasil login, variabel tersebut dapat dihapus dari environment lokal dan Vercel. Password tersimpan sebagai hash scrypt dan dapat diganti dari menu **Akun** tanpa mengubah environment Vercel. Login membuat cookie sesi HTTP-only, membatasi satu sesi aktif per username, dan otomatis berakhir setelah 30 menit tanpa aktivitas.
 
 `FIRECRAWL_API_KEY` hanya digunakan di server; jangan pernah menaruhnya di kode browser atau membagikan isi `.env.local`. `SUPABASE_URL` dan `SUPABASE_SERVICE_ROLE_KEY` juga hanya digunakan server-side.
 

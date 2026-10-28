@@ -36,7 +36,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const user = verifyCredentials(parsed.data.username, parsed.data.password);
+    const user = await verifyCredentials(parsed.data.username, parsed.data.password);
     if (!user) {
       return NextResponse.json({ error: "Username atau password salah." }, { status: 401, ...noStore });
     }

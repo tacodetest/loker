@@ -440,6 +440,17 @@ alter table app_sessions enable row level security;
 revoke all on app_sessions from public, anon, authenticated;
 grant all on app_sessions to service_role;
 
+create table if not exists app_users (
+  id text primary key check (id in ('taufik', 'alya')),
+  name text not null,
+  password_hash text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+alter table app_users enable row level security;
+revoke all on app_users from public, anon, authenticated;
+grant all on app_users to service_role;
+
 create table if not exists cv_analyses (
   owner_id text primary key check (owner_id in ('taufik', 'alya')),
   analysis jsonb not null,

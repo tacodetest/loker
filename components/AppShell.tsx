@@ -12,6 +12,7 @@ const navigation = [
   { href: "/jobs", label: "Semua lowongan", icon: "▤" },
   { href: "/sources", label: "Kelola tautan", icon: "↗" },
   { href: "/cv", label: "Upload CV", icon: "⇧" },
+  { href: "/account", label: "Akun", icon: "◎" },
 ];
 
 function activePath(pathname: string, href: string) {
