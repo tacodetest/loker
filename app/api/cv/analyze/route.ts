@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { analyzeResume, CvAnalysisError, extractResumeText } from "@/lib/cv-matching";
+import { analyzeResume, CvAnalysisError, extractResumeText, getResumeAnalysisCacheKey } from "@/lib/cv-matching";
 import { getRecentJobsForMatching } from "@/lib/jobs";
 import { getRequestUser } from "@/lib/auth";
 import { db } from "@/lib/supabase";
@@ -14,6 +14,11 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Analisis CV gagal diproses.";
 }
 
+function getPublicAnalysis(value: unknown) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return value;
+  return Object.fromEntries(Object.entries(value).filter(([key]) => key !== "_cacheKey"));
+}
+
 async function analyzeAndSave(userId: AppUserId, file: Blob) {
   const jobs = await getRecentJobsForMatching(userId);
   if (!jobs.length) {
@@ -21,11 +26,31 @@ async function analyzeAndSave(userId: AppUserId, file: Blob) {
   }
 
   const resumeText = await extractResumeText(new Uint8Array(await file.arrayBuffer()));
+  const cacheKey = getResumeAnalysisCacheKey(resumeText, jobs);
+  const { data: cached, error: cacheError } = await db()
+    .from("cv_analyses")
+    .select("analysis, analyzed_at")
+    .eq("owner_id", userId)
+    .maybeSingle();
+  if (cacheError) throw new Error(`Gagal memeriksa hasil analisis tersimpan: ${cacheError.message}`);
+  if (
+    cached?.analysis !== null
+    && typeof cached?.analysis === "object"
+    && !Array.isArray(cached.analysis)
+    && "_cacheKey" in cached.analysis
+    && cached.analysis._cacheKey === cacheKey
+  ) {
+    return NextResponse.json({
+      analysis: getPublicAnalysis(cached.analysis),
+      analyzedAt: cached.analyzed_at,
+    }, noStore);
+  }
+
   const analysis = await analyzeResume(resumeText, jobs);
   const analyzedAt = new Date().toISOString();
   const { error } = await db().from("cv_analyses").upsert({
     owner_id: userId,
-    analysis,
+    analysis: { ...analysis, _cacheKey: cacheKey },
     analyzed_at: analyzedAt,
   }, { onConflict: "owner_id" });
   if (error) throw new Error(`Analisis berhasil, tetapi hasilnya gagal disimpan: ${error.message}`);
@@ -45,7 +70,7 @@ export async function GET(req: Request) {
       .maybeSingle();
     if (error) throw new Error(error.message);
     return NextResponse.json({
-      analysis: data?.analysis ?? null,
+      analysis: getPublicAnalysis(data?.analysis ?? null),
       analyzedAt: data?.analyzed_at ?? null,
     }, noStore);
   } catch (error) {
