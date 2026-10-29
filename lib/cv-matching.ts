@@ -147,19 +147,23 @@ function tokenize(value: string) {
   return value.toLocaleLowerCase("id-ID").match(/[a-z][a-z0-9+#.-]{1,}|[a-z]{3,}/g) ?? [];
 }
 
-function selectCandidateJobs(resumeText: string, jobs: JobForMatching[]) {
-  const normalizedTokens = (value: string) => [...new Set(tokenize(value)
+function normalizedTokens(value: string) {
+  return tokenize(value)
     .map((token) => token.replace(/^[^a-z]+|[^a-z0-9+#]+$/g, ""))
-    .filter((token) => token.length >= 3 && !stopWords.has(token)))];
-  const resumeTokens = normalizedTokens(resumeText);
+    .filter((token) => token.length >= 3 && !stopWords.has(token));
+}
+
+function selectCandidateJobs(resumeText: string, jobs: JobForMatching[]) {
+  const getUniqueTokens = (value: string) => [...new Set(normalizedTokens(value))];
+  const resumeTokens = getUniqueTokens(resumeText);
   const resumeTokenSet = new Set(resumeTokens);
   const resumeTitle = resumeText.toLocaleLowerCase("id-ID");
 
   return jobs
     .map((job) => {
-      const titleTokens = new Set(normalizedTokens(job.title));
-      const descriptionTokens = new Set(normalizedTokens(job.description ?? ""));
-      const companyTokens = new Set(normalizedTokens(job.company ?? ""));
+      const titleTokens = new Set(getUniqueTokens(job.title));
+      const descriptionTokens = new Set(getUniqueTokens(job.description ?? ""));
+      const companyTokens = new Set(getUniqueTokens(job.company ?? ""));
       let retrievalScore = 0;
       for (const token of resumeTokenSet) {
         if (titleTokens.has(token)) retrievalScore += 6;
@@ -185,6 +189,58 @@ function selectCandidateJobs(resumeText: string, jobs: JobForMatching[]) {
     )
     .slice(0, maxCandidateJobs)
     .map(({ job }) => job);
+}
+
+export function analyzeResumeLocally(resumeText: string, jobs: JobForMatching[]) {
+  const resumeTokens = [...new Set(normalizedTokens(resumeText))];
+  const targetMatches = Math.max(1, Math.min(8, resumeTokens.length));
+  const rankedJobs = selectCandidateJobs(resumeText, jobs)
+    .map((job) => {
+      const titleTokens = new Set(normalizedTokens(job.title));
+      const descriptionTokens = new Set(normalizedTokens(job.description ?? ""));
+      const matchedKeywords = resumeTokens
+        .filter((token) => titleTokens.has(token) || descriptionTokens.has(token))
+        .slice(0, 6);
+      const titleMatchCount = matchedKeywords.filter((token) => titleTokens.has(token)).length;
+      const score = Math.min(
+        95,
+        Math.round((matchedKeywords.length / targetMatches) * 75 + (titleMatchCount ? 20 : 0)),
+      );
+      return { job, matchedKeywords, score };
+    })
+    .filter(({ matchedKeywords }) => matchedKeywords.length > 0)
+    .slice(0, maxDisplayedMatches);
+
+  const keywordCounts = new Map<string, number>();
+  for (const token of normalizedTokens(resumeText)) {
+    keywordCounts.set(token, (keywordCounts.get(token) ?? 0) + 1);
+  }
+  const keywords = [...keywordCounts]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, 20)
+    .map(([keyword]) => keyword);
+
+  return {
+    method: "local" as const,
+    keywords,
+    matches: rankedJobs.map(({ job, matchedKeywords, score }) => ({
+      job: {
+        job_url: job.job_url,
+        title: job.title,
+        company: job.company,
+        location: job.location,
+        salary: job.salary,
+        posted_time: job.posted_time,
+        scraped_at: job.scraped_at,
+        site: job.site,
+      },
+      score,
+      matchedKeywords,
+      explanation: `Kecocokan kata kunci: ${matchedKeywords.join(", ")}.`,
+      matchingPoints: matchedKeywords.slice(0, 2).map((keyword) => `Kata "${keyword}" ditemukan di CV dan informasi lowongan.`),
+      missingPoints: [],
+    })),
+  };
 }
 
 export function getResumeAnalysisCacheKey(resumeText: string, jobs: JobForMatching[]) {

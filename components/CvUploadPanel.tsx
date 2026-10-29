@@ -476,10 +476,10 @@ export default function CvUploadPanel({
             >
               {analysisLoading
                 ? analysis
-                  ? "Menganalisis ulang..."
+                  ? "Mencoba AI lagi..."
                   : "Menganalisis..."
                 : analysis
-                  ? "Analisis ulang"
+                  ? analysis.method === "local" ? "Coba AI lagi" : "Analisis ulang"
                   : "Analisis kecocokan"}
             </button>
           </div>
@@ -510,8 +510,9 @@ export default function CvUploadPanel({
               </p>
               {analysis.method === "local" && (
                 <p className="cv-score-disclaimer">
-                  Hasil ini memakai metode analisis sebelumnya. Pilih Analisis
-                  ulang untuk mendapatkan kata kunci dan pencocokan dari AI.
+                  Gemini sedang tidak merespons. Hasil ini dibuat secara lokal
+                  dari kecocokan kata kunci, bukan oleh AI. Pilih Coba AI lagi
+                  nanti untuk meminta analisis Gemini.
                 </p>
               )}
               <div className="cv-keywords">

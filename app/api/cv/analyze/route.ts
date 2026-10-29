@@ -1,5 +1,11 @@
 import { NextResponse } from "next/server";
-import { analyzeResume, CvAnalysisError, extractResumeText, getResumeAnalysisCacheKey } from "@/lib/cv-matching";
+import {
+  analyzeResume,
+  analyzeResumeLocally,
+  CvAnalysisError,
+  extractResumeText,
+  getResumeAnalysisCacheKey,
+} from "@/lib/cv-matching";
 import { getRecentJobsForMatching } from "@/lib/jobs";
 import { getRequestUser } from "@/lib/auth";
 import { db } from "@/lib/supabase";
@@ -37,6 +43,7 @@ async function analyzeAndSave(userId: AppUserId, file: Blob) {
     cached?.analysis !== null
     && typeof cached?.analysis === "object"
     && !Array.isArray(cached.analysis)
+    && cached.analysis.method === "ai"
     && "_cacheKey" in cached.analysis
     && cached.analysis._cacheKey === cacheKey
   ) {
@@ -46,7 +53,14 @@ async function analyzeAndSave(userId: AppUserId, file: Blob) {
     }, noStore);
   }
 
-  const analysis = await analyzeResume(resumeText, jobs);
+  let analysis: Awaited<ReturnType<typeof analyzeResume>> | ReturnType<typeof analyzeResumeLocally>;
+  try {
+    analysis = await analyzeResume(resumeText, jobs);
+  } catch (error) {
+    if (!(error instanceof CvAnalysisError) || ![429, 502, 504].includes(error.status)) throw error;
+    console.warn("[cv] Gemini tidak tersedia; menggunakan pencocokan lokal:", error.message);
+    analysis = analyzeResumeLocally(resumeText, jobs);
+  }
   const analyzedAt = new Date().toISOString();
   const { error } = await db().from("cv_analyses").upsert({
     owner_id: userId,
