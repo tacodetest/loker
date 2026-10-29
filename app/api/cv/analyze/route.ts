@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import {
+  CV_ANALYSIS_VERSION,
   analyzeResume,
-  analyzeResumeLocally,
   CvAnalysisError,
   extractResumeText,
   getResumeAnalysisCacheKey,
@@ -20,9 +20,15 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Analisis CV gagal diproses.";
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
 function getPublicAnalysis(value: unknown) {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return value;
-  return Object.fromEntries(Object.entries(value).filter(([key]) => key !== "_cacheKey"));
+  if (!isRecord(value) || value.method !== "ai" || value._analysisVersion !== CV_ANALYSIS_VERSION) return null;
+  return Object.fromEntries(
+    Object.entries(value).filter(([key]) => key !== "_cacheKey" && key !== "_analysisVersion"),
+  );
 }
 
 async function analyzeAndSave(userId: AppUserId, file: Blob) {
@@ -44,6 +50,7 @@ async function analyzeAndSave(userId: AppUserId, file: Blob) {
     && typeof cached?.analysis === "object"
     && !Array.isArray(cached.analysis)
     && cached.analysis.method === "ai"
+    && cached.analysis._analysisVersion === CV_ANALYSIS_VERSION
     && "_cacheKey" in cached.analysis
     && cached.analysis._cacheKey === cacheKey
   ) {
@@ -53,18 +60,11 @@ async function analyzeAndSave(userId: AppUserId, file: Blob) {
     }, noStore);
   }
 
-  let analysis: Awaited<ReturnType<typeof analyzeResume>> | ReturnType<typeof analyzeResumeLocally>;
-  try {
-    analysis = await analyzeResume(resumeText, jobs);
-  } catch (error) {
-    if (!(error instanceof CvAnalysisError) || ![429, 502, 504].includes(error.status)) throw error;
-    console.warn("[cv] Gemini tidak tersedia; menggunakan pencocokan lokal:", error.message);
-    analysis = analyzeResumeLocally(resumeText, jobs);
-  }
+  const analysis = await analyzeResume(resumeText, jobs);
   const analyzedAt = new Date().toISOString();
   const { error } = await db().from("cv_analyses").upsert({
     owner_id: userId,
-    analysis: { ...analysis, _cacheKey: cacheKey },
+    analysis: { ...analysis, _cacheKey: cacheKey, _analysisVersion: CV_ANALYSIS_VERSION },
     analyzed_at: analyzedAt,
   }, { onConflict: "owner_id" });
   if (error) throw new Error(`Analisis berhasil, tetapi hasilnya gagal disimpan: ${error.message}`);

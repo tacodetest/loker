@@ -12,7 +12,7 @@ type CvInfo = {
 };
 
 type CvAnalysis = {
-  method: "ai" | "local";
+  method: "ai";
   analyzedAt: string;
   keywords: string[];
   matches: {
@@ -35,7 +35,7 @@ type CvAnalysis = {
 };
 
 const cvAnalysisSchema = z.object({
-  method: z.enum(["ai", "local"]).optional(),
+  method: z.literal("ai"),
   analyzedAt: z.string(),
   keywords: z.array(z.string()),
   matches: z.array(
@@ -169,11 +169,12 @@ export default function CvUploadPanel({
 
   function parseAnalysis(body: ApiRecord): CvAnalysis | null {
     if (body.analysis === null && body.analyzedAt === null) return null;
+    if (!isRecord(body.analysis) || body.analysis.method !== "ai") return null;
     const parsed = cvAnalysisSchema.parse({
-      ...(isRecord(body.analysis) ? body.analysis : {}),
+      ...body.analysis,
       analyzedAt: body.analyzedAt,
     });
-    return { ...parsed, method: parsed.method ?? "local" };
+    return parsed;
   }
 
   async function loadCv(showLoadedDialog = true) {
@@ -326,7 +327,23 @@ export default function CvUploadPanel({
           cache: "no-store",
         }),
       );
-      setAnalysis(parseAnalysis(body));
+      const result = parseAnalysis(body);
+      if (!result) throw new Error("Server tidak mengembalikan hasil analisis AI yang valid.");
+      setAnalysis(result);
+      const summary = result.matches.length
+        ? [
+            `AI menemukan ${result.matches.length} lowongan yang cocok.`,
+            ...result.matches.slice(0, 3).map(
+              (match) => `${match.job.title} — ${match.score}%`,
+            ),
+            "Hasil lengkap ditampilkan di halaman.",
+          ].join("\n")
+        : "AI belum menemukan lowongan yang cukup cocok. Kata kunci dan hasil analisis tetap dapat dilihat di halaman.";
+      setDialog({
+        variant: "success",
+        title: "Analisis AI selesai",
+        message: summary,
+      });
     } catch (error) {
       showError("Analisis CV gagal", error, "CV tidak dapat dianalisis.");
     } finally {
@@ -464,8 +481,8 @@ export default function CvUploadPanel({
             <div>
               <h2 id="cv-match-title">Kecocokan dengan lowongan</h2>
               <p>
-                Analisis AI menilai semua lowongan aktif dari database dan
-                menampilkan maksimal 30 yang paling relevan.
+                Gemini menganalisis kecocokan CV dengan semua lowongan aktif dari
+                database dan menampilkan maksimal 30 yang paling relevan.
               </p>
             </div>
             <button
@@ -476,10 +493,10 @@ export default function CvUploadPanel({
             >
               {analysisLoading
                 ? analysis
-                  ? "Mencoba AI lagi..."
+                  ? "Menganalisis ulang..."
                   : "Menganalisis..."
                 : analysis
-                  ? analysis.method === "local" ? "Coba AI lagi" : "Analisis ulang"
+                  ? "Analisis ulang"
                   : "Analisis kecocokan"}
             </button>
           </div>
@@ -508,13 +525,6 @@ export default function CvUploadPanel({
                 }).format(new Date(analysis.analyzedAt))}
                 . Hasil tetap tersedia sampai Anda menjalankan analisis ulang.
               </p>
-              {analysis.method === "local" && (
-                <p className="cv-score-disclaimer">
-                  Gemini sedang tidak merespons. Hasil ini dibuat secara lokal
-                  dari kecocokan kata kunci, bukan oleh AI. Pilih Coba AI lagi
-                  nanti untuk meminta analisis Gemini.
-                </p>
-              )}
               <div className="cv-keywords">
                 <strong>Kata kunci CV</strong>
                 <div>
@@ -528,11 +538,7 @@ export default function CvUploadPanel({
                   <article className="cv-match-card" key={match.job.job_url}>
                     <div className="cv-match-card-heading">
                       <div>
-                        <p className="eyebrow">
-                          {analysis.method === "ai"
-                            ? "SKOR KECOCOKAN AI"
-                            : "SKOR KATA KUNCI"}
-                        </p>
+                        <p className="eyebrow">SKOR KECOCOKAN AI</p>
                         <h3>{match.job.title}</h3>
                         <p className="cv-match-meta">
                           {match.job.company || "Perusahaan tidak dicantumkan"}
@@ -594,9 +600,7 @@ export default function CvUploadPanel({
                 </p>
               )}
               <p className="cv-score-disclaimer">
-                {analysis.method === "ai"
-                  ? "Persentase adalah perkiraan AI, bukan jaminan diterima."
-                  : "Persentase merupakan perkiraan kata kunci, bukan jaminan diterima."}{" "}
+                Persentase adalah perkiraan AI, bukan jaminan diterima.{" "}
                 Maksimal 30 lowongan ditampilkan; verifikasi persyaratan pada
                 lowongan asli.
               </p>

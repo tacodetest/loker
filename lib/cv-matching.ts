@@ -6,25 +6,11 @@ import { z } from "zod";
 import type { JobForMatching } from "./jobs";
 
 const maxResumeTextLength = 6_000;
-const maxCandidateJobs = 20;
 const maxDisplayedMatches = 30;
 const maxJobDescriptionLength = 600;
+export const CV_ANALYSIS_VERSION = 3;
 
 PDFParse.setWorker(getData());
-
-const stopWords = new Set([
-  "ada", "adalah", "agar", "akan", "aku", "anda", "antara", "atau", "bahwa", "bagi",
-  "baik", "banyak", "baru", "belum", "bisa", "dalam", "dan", "dari", "dengan", "dia",
-  "dapat", "di", "dilakukan", "dll", "oleh", "untuk", "pada", "pernah", "saat", "saya",
-  "sebagai", "secara", "serta", "sudah", "telah", "terhadap", "tidak", "untuk", "yang",
-  "about", "after", "also", "and", "any", "are", "been", "being", "but", "can", "for",
-  "from", "had", "has", "have", "her", "his", "into", "its", "job", "more", "most",
-  "our", "out", "over", "per", "she", "such", "than", "that", "the", "their", "them",
-  "then", "there", "these", "they", "this", "those", "through", "was", "were", "will",
-  "with", "within", "work", "working", "you", "your", "experience", "experienced",
-  "responsibility", "responsibilities", "requirement", "requirements", "ability", "able",
-  "strong", "excellent", "good", "well", "including", "include", "using", "used",
-]);
 
 const sectionHeading = /^(ringkasan|summary|profil|profile|tentang saya|about me|pengalaman|experience|work experience|pendidikan|education|keahlian|skills|skill|sertifikasi|certifications?|proyek|projects|bahasa|languages|organisasi|organizations?)\b/i;
 const personalLine = /\b(email|e-mail|phone|mobile|telepon|nomor hp|alamat|address|domisili|tempat tinggal|jalan|jl\.|jln\.|rt\/rw|postcode|postal code|kode pos|kota|city|kelurahan|kecamatan|provinsi|province|country|negara|jenis kelamin|gender|agama|religion|status perkawinan|marital status|tanggal lahir|date of birth|birth date|nomor ktp|nik|passport)\b/i;
@@ -143,110 +129,10 @@ function sanitizeResumeText(rawText: string) {
     .trim();
 }
 
-function tokenize(value: string) {
-  return value.toLocaleLowerCase("id-ID").match(/[a-z][a-z0-9+#.-]{1,}|[a-z]{3,}/g) ?? [];
-}
-
-function normalizedTokens(value: string) {
-  return tokenize(value)
-    .map((token) => token.replace(/^[^a-z]+|[^a-z0-9+#]+$/g, ""))
-    .filter((token) => token.length >= 3 && !stopWords.has(token));
-}
-
-function selectCandidateJobs(resumeText: string, jobs: JobForMatching[]) {
-  const getUniqueTokens = (value: string) => [...new Set(normalizedTokens(value))];
-  const resumeTokens = getUniqueTokens(resumeText);
-  const resumeTokenSet = new Set(resumeTokens);
-  const resumeTitle = resumeText.toLocaleLowerCase("id-ID");
-
-  return jobs
-    .map((job) => {
-      const titleTokens = new Set(getUniqueTokens(job.title));
-      const descriptionTokens = new Set(getUniqueTokens(job.description ?? ""));
-      const companyTokens = new Set(getUniqueTokens(job.company ?? ""));
-      let retrievalScore = 0;
-      for (const token of resumeTokenSet) {
-        if (titleTokens.has(token)) retrievalScore += 6;
-        if (descriptionTokens.has(token)) retrievalScore += 2;
-        if (companyTokens.has(token)) retrievalScore += 1;
-      }
-
-      const title = job.title.toLocaleLowerCase("id-ID");
-      const titleWords = title.split(/[^a-z0-9+#]+/).filter((word) => word.length >= 4);
-      for (const titleWord of titleWords) {
-        if (resumeTitle.includes(titleWord)) retrievalScore += 3;
-      }
-      const coverage = resumeTokens.length
-        ? [...titleTokens].filter((token) => resumeTokenSet.has(token)).length / titleTokens.size
-        : 0;
-      retrievalScore += Math.round(coverage * 4);
-      return { job, retrievalScore };
-    })
-    .sort((a, b) =>
-      b.retrievalScore - a.retrievalScore
-      || b.job.scraped_at.localeCompare(a.job.scraped_at)
-      || a.job.title.localeCompare(b.job.title),
-    )
-    .slice(0, maxCandidateJobs)
-    .map(({ job }) => job);
-}
-
-export function analyzeResumeLocally(resumeText: string, jobs: JobForMatching[]) {
-  const resumeTokens = [...new Set(normalizedTokens(resumeText))];
-  const targetMatches = Math.max(1, Math.min(8, resumeTokens.length));
-  const rankedJobs = selectCandidateJobs(resumeText, jobs)
-    .map((job) => {
-      const titleTokens = new Set(normalizedTokens(job.title));
-      const descriptionTokens = new Set(normalizedTokens(job.description ?? ""));
-      const matchedKeywords = resumeTokens
-        .filter((token) => titleTokens.has(token) || descriptionTokens.has(token))
-        .slice(0, 6);
-      const titleMatchCount = matchedKeywords.filter((token) => titleTokens.has(token)).length;
-      const score = Math.min(
-        95,
-        Math.round((matchedKeywords.length / targetMatches) * 75 + (titleMatchCount ? 20 : 0)),
-      );
-      return { job, matchedKeywords, score };
-    })
-    .filter(({ matchedKeywords }) => matchedKeywords.length > 0)
-    .slice(0, maxDisplayedMatches);
-
-  const keywordCounts = new Map<string, number>();
-  for (const token of normalizedTokens(resumeText)) {
-    keywordCounts.set(token, (keywordCounts.get(token) ?? 0) + 1);
-  }
-  const keywords = [...keywordCounts]
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .slice(0, 20)
-    .map(([keyword]) => keyword);
-
-  return {
-    method: "local" as const,
-    keywords,
-    matches: rankedJobs.map(({ job, matchedKeywords, score }) => ({
-      job: {
-        job_url: job.job_url,
-        title: job.title,
-        company: job.company,
-        location: job.location,
-        salary: job.salary,
-        posted_time: job.posted_time,
-        scraped_at: job.scraped_at,
-        site: job.site,
-      },
-      score,
-      matchedKeywords,
-      explanation: `Kecocokan kata kunci: ${matchedKeywords.join(", ")}.`,
-      matchingPoints: matchedKeywords.slice(0, 2).map((keyword) => `Kata "${keyword}" ditemukan di CV dan informasi lowongan.`),
-      missingPoints: [],
-    })),
-  };
-}
-
 export function getResumeAnalysisCacheKey(resumeText: string, jobs: JobForMatching[]) {
   const model = process.env.GEMINI_MODEL?.trim() || "gemini-3.8-flash";
   const input = {
-    version: 2,
+    version: CV_ANALYSIS_VERSION,
     model,
     resumeText,
     jobs: jobs
@@ -371,9 +257,8 @@ async function evaluateMatches(
 
 export async function analyzeResume(resumeText: string, jobs: JobForMatching[]) {
   if (!jobs.length) throw new CvAnalysisError("Belum ada lowongan JobStreet aktif dalam 7 hari terakhir.", 404);
-  const candidateJobs = selectCandidateJobs(resumeText, jobs);
-  const result = await evaluateMatches(resumeText, candidateJobs);
-  const jobsByUrl = new Map(candidateJobs.map((job) => [job.job_url, job]));
+  const result = await evaluateMatches(resumeText, jobs);
+  const jobsByUrl = new Map(jobs.map((job) => [job.job_url, job]));
   const matches: CvJobMatch[] = [...result.items]
     .sort((a, b) => b.score - a.score)
     .map((item) => {
