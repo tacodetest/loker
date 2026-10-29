@@ -52,6 +52,7 @@ async function dispatchImmediateScrape(ownerId: string, sourceUrl: string) {
   return true;
 }
 const sourceBody = z.object({ url: z.string().trim().min(1).max(2048) });
+const refreshBody = z.object({ url: z.string().trim().min(1).max(2048) });
 const replaceBody = z.object({
   oldUrl: z.string().trim().min(1).max(2048),
   newUrl: z.string().trim().min(1).max(2048),
@@ -142,6 +143,45 @@ export async function POST(request: Request) {
   } catch (error) {
     const errorText = message(error);
     console.error("[sources] Gagal menyimpan URL pencarian:", errorText);
+    return NextResponse.json({ error: errorText }, { status: 500, ...noStore });
+  }
+}
+
+export async function PATCH(request: Request) {
+  const user = await getRequestUser(request);
+  if (!user) return NextResponse.json({ error: "Sesi login berakhir." }, { status: 401, ...noStore });
+  const body: unknown = await request.json().catch(() => null);
+  const parsed = refreshBody.safeParse(body);
+  if (!parsed.success) return NextResponse.json({ error: "URL tautan yang akan diperbarui tidak valid." }, { status: 400, ...noStore });
+  const sourceUrl = getSourceUrl(parsed.data.url);
+  if (!sourceUrl) return NextResponse.json({ error: "URL harus berasal dari JobStreet atau Glints." }, { status: 400, ...noStore });
+
+  try {
+    const url = sourceUrl.url.toString();
+    const { data: savedLink, error } = await db().from("saved_links")
+      .select("id")
+      .eq("owner_id", user.id)
+      .eq("url", url)
+      .eq("is_active", true)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!savedLink) return NextResponse.json({ error: "Tautan aktif tidak ditemukan di akun ini." }, { status: 404, ...noStore });
+
+    const started = runLocalScrape(user.id, url)
+      || (await dispatchImmediateScrape(user.id, url)) === true;
+    if (!started) {
+      return NextResponse.json({
+        error: "Scrape otomatis belum dikonfigurasi. Atur GITHUB_REPOSITORY dan GITHUB_TOKEN untuk menjalankannya di server.",
+      }, { status: 503, ...noStore });
+    }
+
+    return NextResponse.json({
+      ok: true,
+      message: "Permintaan scrape diterima. Proses berjalan di latar belakang; Anda boleh meninggalkan halaman ini.",
+    }, noStore);
+  } catch (error) {
+    const errorText = message(error);
+    console.error("[sources] Gagal memulai scrape manual:", errorText);
     return NextResponse.json({ error: errorText }, { status: 500, ...noStore });
   }
 }

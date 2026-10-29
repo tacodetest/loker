@@ -328,14 +328,17 @@ export default function CvUploadPanel({
         }),
       );
       const result = parseAnalysis(body);
-      if (!result) throw new Error("Server tidak mengembalikan hasil analisis AI yang valid.");
+      if (!result)
+        throw new Error(
+          "Server tidak mengembalikan hasil analisis AI yang valid.",
+        );
       setAnalysis(result);
       const summary = result.matches.length
         ? [
             `AI menemukan ${result.matches.length} lowongan yang cocok.`,
-            ...result.matches.slice(0, 3).map(
-              (match) => `${match.job.title} — ${match.score}%`,
-            ),
+            ...result.matches
+              .slice(0, 3)
+              .map((match) => `${match.job.title} — ${match.score}%`),
             "Hasil lengkap ditampilkan di halaman.",
           ].join("\n")
         : "AI belum menemukan lowongan yang cukup cocok. Kata kunci dan hasil analisis tetap dapat dilihat di halaman.";
@@ -600,9 +603,9 @@ export default function CvUploadPanel({
                 </p>
               )}
               <p className="cv-score-disclaimer">
-                Persentase adalah perkiraan AI, bukan jaminan diterima.{" "}
-                Maksimal 30 lowongan ditampilkan; verifikasi persyaratan pada
-                lowongan asli.
+                Persentase adalah perkiraan AI, bukan jaminan diterima. Maksimal
+                20 lowongan ditampilkan; verifikasi persyaratan pada lowongan
+                asli.
               </p>
             </div>
           )}

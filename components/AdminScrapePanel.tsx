@@ -38,6 +38,7 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
   const [replacementUrls, setReplacementUrls] = useState<Record<string, string>>({});
   const [editingUrl, setEditingUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [pendingRefreshes, setPendingRefreshes] = useState<Record<string, string | null>>({});
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [dialog, setDialog] = useState<{ variant: "success" | "error" | "confirm"; title: string; message: string } | null>(null);
@@ -62,9 +63,70 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
     setError(null);
     try {
       const body = await readResponse(await fetch("/api/sources", { cache: "no-store" }));
-      setSources(Array.isArray(body.sources) ? body.sources as SavedSource[] : []);
+      const refreshedSources = Array.isArray(body.sources) ? body.sources as SavedSource[] : [];
+      setSources(refreshedSources);
+      return refreshedSources;
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Gagal memuat ulang data.");
+      return null;
+    }
+  }
+
+  useEffect(() => {
+    const pendingIds = Object.keys(pendingRefreshes);
+    if (!pendingIds.length) return;
+
+    let checking = false;
+    const interval = window.setInterval(() => {
+      if (checking) return;
+      checking = true;
+      void (async () => {
+        const refreshedSources = await refreshFromDatabase();
+        if (!refreshedSources) return;
+        const completed = pendingIds.filter((id) => {
+          const source = refreshedSources.find((item) => item.id === id);
+          return source && source.last_scraped_at !== pendingRefreshes[id];
+        });
+        if (!completed.length) return;
+
+        for (const id of completed) {
+          const source = refreshedSources.find((item) => item.id === id);
+          if (!source) continue;
+          if (source.last_error) {
+            setError(`${source.source === "jobstreet" ? "JobStreet" : "Glints"} gagal diperbarui: ${source.last_error}`);
+          } else {
+            setNotice(`${source.source === "jobstreet" ? "JobStreet" : "Glints"} berhasil diperbarui.`);
+          }
+        }
+        setPendingRefreshes((current) => {
+          const next = { ...current };
+          for (const id of completed) delete next[id];
+          return next;
+        });
+      })().finally(() => {
+        checking = false;
+      });
+    }, 12_000);
+
+    return () => window.clearInterval(interval);
+  }, [pendingRefreshes]);
+
+  async function refreshSource(source: SavedSource) {
+    setError(null);
+    setNotice(null);
+    try {
+      await readResponse(await fetch("/api/sources", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: source.url }),
+      }));
+      setPendingRefreshes((current) => ({
+        ...current,
+        [source.id]: source.last_scraped_at,
+      }));
+      setNotice(`Permintaan pembaruan ${source.source === "jobstreet" ? "JobStreet" : "Glints"} diterima. Proses berjalan di latar belakang dan halaman ini boleh ditinggalkan.`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Gagal memulai scrape manual.");
     }
   }
 
@@ -178,7 +240,7 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
 
       <section className="content-card">
         <div className="section-heading">
-          <div><h2>Tambah tautan pencarian</h2><p>Masukkan URL pencarian JobStreet atau Glints. Scraping berjalan otomatis melalui GitHub Actions.</p></div>
+          <div><h2>Tambah tautan pencarian</h2><p>Masukkan URL pencarian JobStreet atau Glints. Scraping berjalan otomatis melalui GitHub Actions dan dapat dimulai manual dari tautan tersimpan.</p></div>
         </div>
         <form className="source-add-form" onSubmit={addSource}>
           <label className="filter-search">
@@ -199,7 +261,7 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
       </section>
 
       <section aria-labelledby="saved-links-heading" className="content-card">
-        <div className="section-heading"><div><h2 id="saved-links-heading">Tautan tersimpan</h2><p>Status di bawah berasal dari proses GitHub Actions terakhir.</p></div></div>
+        <div className="section-heading"><div><h2 id="saved-links-heading">Tautan tersimpan</h2><p>Status di bawah berasal dari proses scrape terakhir. Pembaruan manual berjalan di latar belakang.</p></div></div>
         {sources.length === 0 ? (
           <div className="empty-inline">Belum ada tautan pencarian tersimpan.</div>
         ) : (
@@ -210,11 +272,22 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
                   <strong className="site-tag">{source.source === "jobstreet" ? "JobStreet" : "Glints"}</strong>
                   <a href={source.url} rel="noreferrer" target="_blank">{source.url}</a>
                   <span>{source.last_status ? `Status: ${source.last_status}` : "Status: menunggu scrape otomatis"}</span>
+                  {pendingRefreshes[source.id] !== undefined && (
+                    <span aria-live="polite">Pembaruan sedang berjalan di latar belakang. Anda boleh meninggalkan halaman ini.</span>
+                  )}
                   {source.last_error && <span className="form-error">{source.last_error}</span>}
                   <span>{source.job_count} lowongan terhubung</span>
                   <small>Diperbarui: {formatUpdatedAt(source.last_scraped_at)}</small>
                 </div>
                 <div className="saved-link-actions">
+                  <button
+                    className="button button-primary"
+                    disabled={loading || pendingRefreshes[source.id] !== undefined}
+                    onClick={() => void refreshSource(source)}
+                    type="button"
+                  >
+                    {pendingRefreshes[source.id] !== undefined ? "Sedang diperbarui..." : "Perbarui sekarang"}
+                  </button>
                   <button className="button button-secondary" disabled={loading} onClick={() => setEditingUrl(editingUrl === source.url ? null : source.url)} type="button">Ganti URL</button>
                   <button className="button button-secondary" disabled={loading} onClick={() => requestDeleteSource(source)} type="button">Hapus</button>
                 </div>

@@ -50,8 +50,8 @@ async function run() {
 
   const errorCount = links.filter((link) => linkErrors.has(link.id)).length;
   console.info(`[scraper] Selesai: ${links.length - errorCount}/${links.length} tautan berhasil. Maksimal ${DETAIL_PER_RUN} detail diproses.`);
-  if (errorCount === links.length) {
-    throw new Error(`Semua ${links.length} tautan gagal diproses.`);
+  if (errorCount > 0) {
+    throw new Error(`${errorCount} dari ${links.length} tautan gagal diproses. Periksa status masing-masing tautan di dashboard.`);
   }
 }
 

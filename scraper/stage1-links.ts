@@ -70,7 +70,15 @@ export async function collectJobLinks(link: SavedLink): Promise<number> {
 
 async function loadHtml(page: Page, url: string) {
   const response = await page.goto(url, { waitUntil: "domcontentloaded", timeout: PAGE_TIMEOUT_MS });
-  if (!response || !response.ok()) throw new Error(`Gagal membuka halaman daftar (${response?.status() ?? "tanpa respons"}): ${url}`);
+  if (!response || !response.ok()) {
+    const status = response?.status();
+    if (status === 403) {
+      throw new Error(
+        `Situs menolak akses scraper (HTTP 403): ${url}. Scraper tidak mencoba melewati pembatasan akses; tautan lowongan tersimpan sebelumnya tidak dihapus.`,
+      );
+    }
+    throw new Error(`Gagal membuka halaman daftar (${status ?? "tanpa respons"}): ${url}`);
+  }
   await page.locator("body").waitFor({ state: "visible", timeout: PAGE_TIMEOUT_MS });
   return page.content();
 }

@@ -29,7 +29,7 @@ Navigasi antarhalaman mempertahankan state sementara dalam memori tab. Hasil ana
 
 ## Scraper dan HTML debug
 
-Tambahkan tautan pencarian JobStreet atau Glints lewat menu **Kelola tautan**. GitHub Actions membaca semua tautan aktif dari Supabase, menemukan link lowongan, mengambil detail, lalu menyimpan hasilnya. Tombol **Muat ulang data** hanya membaca ulang data Supabase. Mengganti URL menghapus lowongan yatim dari URL lama; URL baru mulai diproses pada run otomatis berikutnya.
+Tambahkan tautan pencarian JobStreet atau Glints lewat menu **Kelola tautan**. GitHub Actions membaca semua tautan aktif dari Supabase, menemukan link lowongan, mengambil detail, lalu menyimpan hasilnya. Tombol **Perbarui sekarang** pada tautan menjalankan scrape di latar belakang; halaman boleh ditinggalkan, dan status diperbarui setelah proses selesai. Jika situs menolak akses atau scrape gagal, status error dan jumlah lowongan akan terlihat di tautan tersebut. Mengganti URL menghapus lowongan yatim dari URL lama; URL baru dapat diperbarui lewat tombol manual atau run otomatis berikutnya.
 
 Jalankan `npm run scrape:debug` dengan URL pencarian yang ingin diuji di `.env.local`:
 
@@ -40,7 +40,7 @@ DEBUG_GLINTS_SEARCH_URL=
 
 Mode debug menyimpan HTML halaman pencarian ke `debug/`, menemukan tautan detail secara otomatis dari halaman itu, lalu menyimpan HTML detail pertama yang ditemukan. Ia juga mencetak deteksi JSON-LD, `__NEXT_DATA__`, serta nama field tanggal. Periksa file daftar dan detail yang dihasilkan, lalu isi selector yang sudah diverifikasi pada `scraper/sources/jobstreet.ts` dan `scraper/sources/glints.ts`. Selector sengaja dikosongkan sampai struktur situs nyata diperiksa; jika link tidak ditemukan, debug akan meminta konfigurasi `listingLinkSelector`. Untuk detail, JSON-LD bertipe `JobPosting` dicoba lebih dulu.
 
-Setelah selector diverifikasi, pasang Chromium lokal dengan `npx playwright install chromium`, lalu scraper dapat dijalankan dengan `npm run scrape`. Proses memakai Chromium headless, satu browser secara berurutan, jeda antar halaman, batas 3 halaman per pencarian, maksimum 40 detail per run, maksimum 3 percobaan detail, rentang posting 7 hari, serta penghapusan data yang tidak terlihat selama 14 hari. Jika captcha atau pemblokiran terdeteksi, tahap detail dihentikan dengan status error; scraper tidak mencoba melewati perlindungan tersebut.
+Setelah selector diverifikasi, pasang Chromium lokal dengan `npx playwright install chromium`, lalu scraper dapat dijalankan dengan `npm run scrape`. Proses memakai Chromium headless, satu browser secara berurutan, jeda antar halaman, batas 3 halaman per pencarian, maksimum 40 detail per run, maksimum 3 percobaan detail, rentang posting 7 hari, serta penghapusan data yang tidak terlihat selama 14 hari. Jika situs menolak akses (HTTP 403), captcha, atau pemblokiran terdeteksi, tautan ditandai gagal dan data lama dipertahankan; scraper tidak mencoba melewati pembatasan akses. GitHub Actions juga menandai run gagal jika satu atau beberapa tautan mengalami error, walaupun sumber lain berhasil.
 
 ## GitHub Actions
 
@@ -49,7 +49,7 @@ Workflow `.github/workflows/scrape.yml` berjalan setiap 12 jam: pukul 12.00 dan 
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
 
-Workflow memakai Node.js 20 dan menginstal Chromium Playwright. Job dinyatakan gagal hanya jika seluruh tautan tersimpan gagal.
+Workflow memakai Node.js 22 dan menginstal Chromium Playwright. Job dinyatakan gagal jika satu atau beberapa tautan gagal diproses.
 
 ## Fitur lain
 
