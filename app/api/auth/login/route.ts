@@ -42,12 +42,6 @@ export async function POST(request: Request) {
     }
 
     const session = await createAppSession(user.id);
-    if (!session.created) {
-      return NextResponse.json(
-        { error: `Akun ${user.name} sedang aktif di perangkat lain. Keluar dari sesi itu atau tunggu sampai sesi berakhir.` },
-        { status: 409, ...noStore },
-      );
-    }
 
     const response = NextResponse.json({ user: { id: user.id, name: user.name } }, noStore);
     response.cookies.set(sessionCookieName, session.token, {

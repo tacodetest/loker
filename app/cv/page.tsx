@@ -2,6 +2,8 @@ import { requireCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/supabase";
 import CvUploadPanel from "@/components/CvUploadPanel";
 
+export const instant = false;
+
 export default async function CvPage() {
   const user = await requireCurrentUser();
   const { data, error } = await db()

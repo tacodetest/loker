@@ -2,9 +2,11 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { io } from "next/cache";
 import { getPostedAge } from "@/lib/job-age";
-import { getJobsPage, JOBS_PAGE_SIZE, type JobsPeriod } from "@/lib/jobs";
+import { getJobsPage, JOBS_PAGE_SIZE, type JobsPeriod, type JobsSite } from "@/lib/jobs";
 import { JobsSkeleton } from "@/components/PageSkeletons";
 import { requireCurrentUser } from "@/lib/auth";
+
+export const instant = false;
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
@@ -15,6 +17,10 @@ function firstValue(value: string | string[] | undefined, maxLength = 100) {
 function safePeriod(value: string | undefined, legacyDays: string): JobsPeriod {
   if (value === "today" || (!value && legacyDays === "1")) return "today";
   return "all";
+}
+
+function safeSite(value: string): JobsSite {
+  return value === "jobstreet" || value === "glints" ? value : "all";
 }
 
 function safePage(value: string) {
@@ -54,9 +60,10 @@ async function JobsPageContent({ searchParams }: { searchParams: SearchParams })
   const params = await searchParams;
   const search = firstValue(params.q);
   const period = safePeriod(firstValue(params.period), firstValue(params.days, 4));
+  const site = safeSite(firstValue(params.site));
   const page = safePage(firstValue(params.page, 10));
   const { jobs, currentPage, totalJobs, totalPages } = await getJobsPage(
-    { search, period, page },
+    { search, period, site, page },
     user.id,
   );
   const firstResult = totalJobs === 0 ? 0 : (currentPage - 1) * JOBS_PAGE_SIZE + 1;
@@ -66,6 +73,7 @@ async function JobsPageContent({ searchParams }: { searchParams: SearchParams })
     const pageParams = new URLSearchParams();
     if (search) pageParams.set("q", search);
     pageParams.set("period", period);
+    pageParams.set("site", site);
     pageParams.set("page", String(targetPage));
     return `/jobs?${pageParams.toString()}`;
   }
@@ -76,7 +84,7 @@ async function JobsPageContent({ searchParams }: { searchParams: SearchParams })
         <div>
           <p className="eyebrow">PENCARIAN KERJA</p>
           <h1>Semua lowongan</h1>
-          <p>Lowongan JobStreet yang tersimpan hingga 7 hari terakhir.</p>
+          <p>Lowongan JobStreet dan Glints yang tersimpan di Supabase.</p>
         </div>
       </header>
 
@@ -93,6 +101,14 @@ async function JobsPageContent({ searchParams }: { searchParams: SearchParams })
             <option value="all">Semua (7 hari)</option>
           </select>
         </label>
+        <label className="range-select">
+          Situs
+          <select defaultValue={site} name="site">
+            <option value="all">Semua situs</option>
+            <option value="jobstreet">JobStreet</option>
+            <option value="glints">Glints</option>
+          </select>
+        </label>
         <button className="button button-primary filters-submit" type="submit">Cari</button>
         <span className="results-count">
           Menampilkan {firstResult}–{lastResult} dari {totalJobs} lowongan
@@ -103,7 +119,7 @@ async function JobsPageContent({ searchParams }: { searchParams: SearchParams })
         <section className="empty-state">
           <span aria-hidden="true" className="empty-icon">⌕</span>
           <h2>Belum ada lowongan</h2>
-          <p>Tambahkan tautan pencarian lalu perbarui untuk mengambil lowongan.</p>
+          <p>Tambahkan tautan pencarian. GitHub Actions akan mengambil data secara otomatis.</p>
           <Link className="button button-primary" href="/sources">Kelola tautan</Link>
         </section>
       ) : (
@@ -118,7 +134,7 @@ async function JobsPageContent({ searchParams }: { searchParams: SearchParams })
                   <div className="job-meta">
                     <span>{job.company || "Perusahaan tidak dicantumkan"}</span>
                     {job.location && <span>{job.location}</span>}
-                    <span className="site-tag">JobStreet</span>
+                    <span className="site-tag">{job.site?.includes("glints") ? "Glints" : "JobStreet"}</span>
                   </div>
                   {job.salary && <p className="job-salary">{job.salary}</p>}
                   <p className="job-found">Terakhir diperbarui {formatDate(job.scraped_at)}</p>
@@ -136,9 +152,10 @@ async function JobsPageContent({ searchParams }: { searchParams: SearchParams })
         <nav aria-label="Navigasi halaman lowongan" className="pagination">
           {currentPage > 1 ? (
             <Link aria-label="Halaman sebelumnya" className="button button-secondary pagination-direction" href={pageHref(currentPage - 1)}>
-              ← Sebelumnya
+              <span aria-hidden="true">←</span>
+              <span className="pagination-direction-label">Sebelumnya</span>
             </Link>
-          ) : <span aria-hidden="true" className="button button-secondary pagination-direction pagination-disabled">← Sebelumnya</span>}
+          ) : <span aria-hidden="true" className="button button-secondary pagination-direction pagination-disabled"><span>←</span><span className="pagination-direction-label">Sebelumnya</span></span>}
           <div className="pagination-pages">
             {visiblePages(currentPage, totalPages).map((pageNumber, index) => pageNumber === "ellipsis" ? (
               <span aria-hidden="true" className="pagination-ellipsis" key={`ellipsis-${index}`}>…</span>
@@ -156,9 +173,10 @@ async function JobsPageContent({ searchParams }: { searchParams: SearchParams })
           </div>
           {currentPage < totalPages ? (
             <Link aria-label="Halaman berikutnya" className="button button-secondary pagination-direction" href={pageHref(currentPage + 1)}>
-              Berikutnya →
+              <span className="pagination-direction-label">Berikutnya</span>
+              <span aria-hidden="true">→</span>
             </Link>
-          ) : <span aria-hidden="true" className="button button-secondary pagination-direction pagination-disabled">Berikutnya →</span>}
+          ) : <span aria-hidden="true" className="button button-secondary pagination-direction pagination-disabled"><span className="pagination-direction-label">Berikutnya</span><span>→</span></span>}
         </nav>
       )}
     </main>

@@ -193,7 +193,7 @@ a { color: inherit; }
 .quick-source p { margin: 3px 0 0; color: var(--muted); font-size: .77rem; }
 .quick-icon { display: grid; width: 40px; height: 40px; place-items: center; border-radius: 12px; background: var(--blue-soft); color: var(--blue); font-size: 1.15rem; }
 
-.filters-card { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; align-items: center; gap: 12px; margin-bottom: 17px; padding: 13px; }
+.filters-card { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto auto; align-items: center; gap: 12px; margin-bottom: 17px; padding: 13px; }
 .filter-search { display: flex; height: 40px; min-width: 0; align-items: center; gap: 9px; padding: 0 11px; border: 1px solid #e6eaf0; border-radius: 9px; background: #fafbfd; color: #8996a9; }
 .filter-search > span { font-size: 1.2rem; }
 .filter-search input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: .8rem; }
@@ -293,6 +293,7 @@ a { color: inherit; }
 .cv-match-card-heading .eyebrow { margin-bottom: 4px; font-size: .58rem; }
 .cv-match-card-heading h3 { margin: 0; font-size: .95rem; line-height: 1.4; }
 .cv-match-meta, .cv-match-salary { margin: 4px 0 0; color: var(--muted); font-size: .73rem; }
+.cv-match-source { display: inline-flex; width: fit-content; margin-top: 6px; padding: 3px 8px; border-radius: 999px; background: #edf4ff; color: #365f9f; font-size: .68rem; font-weight: 700; }
 .cv-match-score { display: grid; width: 64px; height: 64px; flex: 0 0 auto; place-items: center; border: 4px solid #d6e5fa; border-radius: 50%; background: #f3f7fd; color: #345b9a; font-size: 1rem; }
 .cv-match-explanation { margin: 0; color: #52647e; font-size: .78rem; line-height: 1.6; }
 .cv-match-list { display: grid; gap: 5px; }
@@ -321,7 +322,7 @@ a { color: inherit; }
 .pagination-page:hover { border-color: #bdcce1; background: #f5f8fe; }
 .pagination-page-active, .pagination-page-active:hover { border-color: var(--blue); background: var(--blue); color: white; }
 .pagination-ellipsis { display: grid; min-width: 22px; height: 38px; place-items: center; color: var(--muted); }
-.pagination-direction { min-width: 112px; flex: 0 0 auto; text-decoration: none; }
+ .pagination-direction { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-width: 112px; flex: 0 0 auto; text-decoration: none; }
 .pagination-disabled { color: #a4adba; cursor: default; }
 .job-detail-card { max-width: 930px; }
 .job-detail-date { margin: 0; color: var(--muted); font-size: .8rem; }
@@ -357,6 +358,20 @@ a { color: inherit; }
 .source-auto-status-running > span { background: #d9922e; }
 .source-row-actions { display: flex; flex: 0 0 auto; gap: 6px; }
 .source-row-actions .button { min-height: 33px; padding: 6px 9px; font-size: .7rem; }
+.source-add-form { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 14px; }
+.source-add-form .filter-search { min-width: 250px; flex: 1; }
+.saved-link-list { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.saved-link-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; padding: 14px 0; border-top: 1px solid #edf0f5; }
+.saved-link-item:first-child { border-top: 0; }
+.saved-link-main { display: grid; min-width: 0; gap: 6px; color: #64748b; font-size: .77rem; }
+.saved-link-main > a { color: #345b9a; overflow-wrap: anywhere; }
+.saved-link-main > small { color: #8995a6; }
+.saved-link-actions, .saved-link-replace { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; }
+.saved-link-replace { grid-column: 1 / -1; }
+.saved-link-replace .filter-search { min-width: 250px; flex: 1; }
+.form-error, .form-success { margin: 10px 0 0; font-size: .78rem; line-height: 1.5; overflow-wrap: anywhere; }
+.form-error { color: var(--red); }
+.form-success { color: #17845d; }
 .dev-tools { grid-column: 1; padding: 13px 15px; border: 1px dashed #cbd6e5; border-radius: 12px; background: #fff; color: var(--muted); font-size: .77rem; }
 .dev-tools summary { color: #52647e; font-weight: 700; cursor: pointer; }
 .dev-tools p { margin: 9px 0; }
@@ -376,6 +391,7 @@ a { color: inherit; }
 @media (max-width: 600px) {
   .source-details .source-last-updated,
   .source-details .source-auto-status { font-size: .68rem; }
+  .saved-link-item { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 850px) {
   .app-sidebar { width: 224px; }
@@ -434,11 +450,12 @@ a { color: inherit; }
   .section-heading > .button { min-height: 32px; padding: 5px 8px; font-size: .68rem; }
   .filters-card { grid-template-columns: minmax(0, 1fr) auto; gap: 9px; padding: 10px; }
   .filters-card.skeleton-filters { grid-template-columns: minmax(0, 1fr) auto; }
-  .pagination { gap: 3px; padding: 4px; border-radius: 11px; }
-  .pagination-pages { gap: 3px; }
+  .pagination { box-sizing: border-box; gap: 3px; width: calc(100% - 28px); max-width: 440px; padding: 4px; border-radius: 11px; }
+  .pagination-pages { justify-content: center; min-width: 0; flex: 1 1 auto; gap: 2px; overflow-x: auto; }
   .pagination-page { min-width: 34px; height: 36px; padding: 0 6px; }
-  .pagination-page:not(.pagination-page-active), .pagination-ellipsis { display: none; }
-  .pagination-direction { min-width: 0; min-height: 36px; padding: 7px 8px; font-size: .68rem; }
+  .pagination-ellipsis { min-width: 18px; height: 36px; }
+  .pagination-direction { display: inline-flex; align-items: center; justify-content: center; min-width: 36px; min-height: 36px; gap: 4px; padding: 7px 8px; font-size: .68rem; }
+  .pagination-direction-label { display: none; }
   .filter-search { grid-column: 1 / -1; min-width: 0; }
   .skeleton-filter-search { grid-column: 1 / -1; }
   .range-select { margin-right: auto; font-size: .7rem; }
@@ -447,7 +464,8 @@ a { color: inherit; }
   .skeleton-filter-select { width: 104px; height: 34px; }
   .results-count { font-size: .67rem; }
   .filters-card.skeleton-filters .skeleton-filter-count { grid-column: 1 / -1; justify-self: end; }
-  .filters-submit { min-width: 66px; }
+  .filters-submit { min-width: 66px; grid-column: 1 / -1; }
+  .filters-card .results-count { grid-column: 1 / -1; justify-self: end; }
   .job-card { grid-template-columns: minmax(64px, max-content) minmax(0, 1fr); gap: 9px; padding: 12px; }
   .skeleton-job-card { min-height: 120px; }
   .job-age { min-height: 48px; }

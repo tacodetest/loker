@@ -1,0 +1,45 @@
+name: Scrape job listings
+
+on:
+  # 05:00 and 17:00 UTC are 12:00 and 00:00 in Asia/Jakarta (UTC+7).
+  schedule:
+    - cron: "0 5,17 * * *"
+  workflow_dispatch:
+    inputs:
+      owner_id:
+        description: Optional owner to scrape
+        required: false
+        type: string
+      source_url:
+        description: Optional search URL to scrape immediately
+        required: false
+        type: string
+
+concurrency:
+  group: job-scraper
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Cache Playwright Chromium
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - run: npx playwright install --with-deps chromium
+      - name: Scrape listings and save to Supabase
+        run: npm run scrape
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SCRAPE_OWNER_ID: ${{ inputs.owner_id }}
+          SCRAPE_SOURCE_URL: ${{ inputs.source_url }}

@@ -109,6 +109,12 @@ export async function changePassword(userId: AppUserId, currentPassword: string,
 export async function createAppSession(userId: AppUserId) {
   const token = randomBytes(32).toString("base64url");
   const tokenHash = hashToken(token);
+
+  // Replace the previous session so a login on a new device always succeeds,
+  // even if the old device could not revoke its stale database session.
+  const { error: replaceError } = await db().from("app_sessions").delete().eq("user_id", userId);
+  if (replaceError) throw new Error(`Gagal mengganti sesi lama: ${replaceError.message}`);
+
   const { data, error } = await db().rpc("create_app_session", {
     p_id: randomUUID(),
     p_user_id: userId,

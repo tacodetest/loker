@@ -1,78 +1,74 @@
+# web_loker
+
+Dashboard pencarian lowongan berbasis Next.js, React, TypeScript, dan Supabase. Scraper Playwright berjalan di GitHub Actions, bukan saat tombol dashboard diklik.
+
 ## Menjalankan aplikasi
 
-Jalankan server pengembangan:
-
 ```bash
+npm ci
 npm run dev
 ```
 
-Buka `http://localhost:3000` setelah server siap.
+Buka `http://localhost:3000`.
 
-## Konfigurasi layanan
+## Konfigurasi dan migrasi Supabase
 
-Tambahkan variabel berikut ke `.env.local`:
+Salin `.env.example` menjadi `.env.local`, lalu isi `SUPABASE_URL` dan `SUPABASE_SERVICE_ROLE_KEY`. Key service-role hanya digunakan di server Next.js dan GitHub Actions; jangan gunakan prefix `NEXT_PUBLIC_` atau mengirimkannya ke browser.
+
+Jalankan `supabase.sql` terlebih dahulu untuk menyiapkan tabel aplikasi dan migrasi data yang sudah ada. Setelah itu jalankan `supabase/schema.sql` di Supabase SQL Editor untuk membuat `saved_links` serta menambahkan status detail scraper. Migrasi ini menyalin tautan JobStreet/Glints dari tabel lama tanpa menghapus tabel atau data lama. Kolom/tabel progres scraper lama dipertahankan sebagai data historis, tetapi tidak lagi digunakan aplikasi.
+
+`TAUFIK_PASSWORD` dan `ALYA_PASSWORD` hanya diperlukan untuk migrasi login awal. `GEMINI_API_KEY` bersifat opsional dan hanya dipakai untuk analisis CV; scraper tidak menggunakan Gemini maupun layanan scraping eksternal.
+
+Username tetap `taufik` dan `alya`. `TAUFIK_PASSWORD` dan `ALYA_PASSWORD` hanya dipakai untuk memindahkan password lama ke tabel login pada login pertama setiap akun. Setelah kedua akun berhasil login, variabel tersebut dapat dihapus. Password tersimpan sebagai hash scrypt dan dapat diganti dari menu **Akun**. Login memakai cookie sesi HTTP-only, membatasi satu sesi aktif per username, dan berakhir setelah 30 menit tanpa aktivitas.
+
+Menu **Upload CV** menyimpan satu CV PDF maksimal 10 MiB di bucket Supabase Storage privat `private-cv`, di lokasi terpisah per pengguna. Upload baru menggantikan CV akun yang sedang masuk; pratinjau memakai URL bertanda tangan yang berlaku 10 menit.
+
+Analisis CV mengambil lowongan aktif tujuh hari terakhir, memilih hingga 40 kandidat awal, lalu Gemini menilai dan memilih maksimal 20 kecocokan. Skor AI adalah perkiraan, bukan jaminan penerimaan. Atur `GEMINI_API_KEY` untuk mengaktifkan analisis; model default `gemini-3.5-flash-lite` dapat diganti lewat `GEMINI_MODEL`. Sebelum teks CV dikirim, bagian identitas awal, kontak, nomor telepon, alamat, dan tautan disamarkan. Gemini free tier memiliki kuota yang dapat berubah dan Google menyatakan konten free tier dapat digunakan untuk meningkatkan produk. Teks CV tidak disimpan dalam tabel; hasil pencocokan disimpan per akun di Supabase sampai **Analisis ulang** berhasil.
+
+Navigasi antarhalaman mempertahankan state sementara dalam memori tab. Hasil analisis CV tersimpan di Supabase agar tetap tersedia setelah refresh atau login kembali.
+
+## Scraper dan HTML debug
+
+Tambahkan tautan pencarian JobStreet atau Glints lewat menu **Kelola tautan**. GitHub Actions membaca semua tautan aktif dari Supabase, menemukan link lowongan, mengambil detail, lalu menyimpan hasilnya. Tombol **Muat ulang data** hanya membaca ulang data Supabase. Mengganti URL menghapus lowongan yatim dari URL lama; URL baru mulai diproses pada run otomatis berikutnya.
+
+Jalankan `npm run scrape:debug` dengan URL pencarian yang ingin diuji di `.env.local`:
 
 ```env
-FIRECRAWL_API_KEY=...
-FIRECRAWL_WEBHOOK_SECRET=...
-SUPABASE_URL=...
-SUPABASE_SERVICE_ROLE_KEY=...
-GEMINI_API_KEY=...
-TAUFIK_PASSWORD=...
-ALYA_PASSWORD=...
-APP_BASE_URL=https://your-production-domain.vercel.app
-CRON_SECRET=...
+DEBUG_JOBSTREET_SEARCH_URL=https://id.jobstreet.com/id/Warehouse-jobs/in-Surabaya-Jawa-Timur?daterange=7
+DEBUG_GLINTS_SEARCH_URL=
 ```
 
-Username tetap `taufik` dan `alya`. Jalankan `supabase.sql` untuk menyiapkan tabel login, sesi, dan migrasi kepemilikan data; semua data yang sudah ada ditetapkan ke akun Taufik, sedangkan akun Alya mulai dengan ruang data terpisah. `TAUFIK_PASSWORD` dan `ALYA_PASSWORD` hanya dipakai untuk memindahkan password lama ke tabel login pada login pertama setiap akun. Setelah kedua akun berhasil login, variabel tersebut dapat dihapus dari environment lokal dan Vercel. Password tersimpan sebagai hash scrypt dan dapat diganti dari menu **Akun** tanpa mengubah environment Vercel. Login membuat cookie sesi HTTP-only, membatasi satu sesi aktif per username, dan otomatis berakhir setelah 30 menit tanpa aktivitas.
+Mode debug menyimpan HTML halaman pencarian ke `debug/`, menemukan tautan detail secara otomatis dari halaman itu, lalu menyimpan HTML detail pertama yang ditemukan. Ia juga mencetak deteksi JSON-LD, `__NEXT_DATA__`, serta nama field tanggal. Periksa file daftar dan detail yang dihasilkan, lalu isi selector yang sudah diverifikasi pada `scraper/sources/jobstreet.ts` dan `scraper/sources/glints.ts`. Selector sengaja dikosongkan sampai struktur situs nyata diperiksa; jika link tidak ditemukan, debug akan meminta konfigurasi `listingLinkSelector`. Untuk detail, JSON-LD bertipe `JobPosting` dicoba lebih dulu.
 
-`FIRECRAWL_API_KEY` hanya digunakan di server; jangan pernah menaruhnya di kode browser atau membagikan isi `.env.local`. `SUPABASE_URL` dan `SUPABASE_SERVICE_ROLE_KEY` juga hanya digunakan server-side.
+Setelah selector diverifikasi, pasang Chromium lokal dengan `npx playwright install chromium`, lalu scraper dapat dijalankan dengan `npm run scrape`. Proses memakai Chromium headless, satu browser secara berurutan, jeda antar halaman, batas 3 halaman per pencarian, maksimum 40 detail per run, maksimum 3 percobaan detail, rentang posting 7 hari, serta penghapusan data yang tidak terlihat selama 14 hari. Jika captcha atau pemblokiran terdeteksi, tahap detail dihentikan dengan status error; scraper tidak mencoba melewati perlindungan tersebut.
 
-Menu **Upload CV** menyimpan satu CV PDF maksimal 10 MiB di bucket Supabase Storage privat `private-cv`, di lokasi terpisah untuk masing-masing pengguna; upload baru menggantikan CV milik akun yang sedang masuk. CV diperiksa formatnya dan pratinjau memakai URL bertanda tangan yang berlaku 10 menit.
+## GitHub Actions
 
-Analisis CV mengambil lowongan JobStreet aktif tujuh hari terakhir. Sistem memilih hingga 40 kandidat awal berdasarkan tumpang tindih teks agar ukuran permintaan tetap terbatas; Gemini kemudian mengekstrak kata kunci profesional dari CV, menilai kecocokan, dan memilih maksimal 20 lowongan teratas. Skor AI adalah perkiraan, bukan jaminan penerimaan. Atur `GEMINI_API_KEY` untuk mengaktifkan analisis (model default `gemini-3.5-flash-lite`; jika diperlukan, model dapat diganti dengan `GEMINI_MODEL`). Sebelum teks CV dikirim ke Gemini, bagian identitas di awal CV, kontak, nomor telepon, alamat, dan tautan disamarkan. Gemini API free tier memiliki kuota yang dapat berubah dan Google menyatakan konten free tier dapat digunakan untuk meningkatkan produk. Teks CV tidak disimpan dalam tabel; hasil pencocokan tersimpan per akun di Supabase sampai pengguna menekan **Analisis ulang**, dan ditampilkan kembali saat membuka menu CV.
+Workflow `.github/workflows/scrape.yml` berjalan setiap 12 jam: pukul 12.00 dan 00.00 WIB (cron UTC `05:00` dan `17:00`) serta dapat dijalankan manual lewat **workflow_dispatch**. Atur repository secrets:
 
-Navigasi antarhalaman mempertahankan state sementara dalam memori tab. Hasil analisis CV juga tersimpan di Supabase per akun agar tetap tersedia setelah refresh atau login kembali; tombol **Analisis ulang** menjalankan pencocokan baru dan mengganti hasil yang tersimpan setelah berhasil.
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
 
-## Pengambilan dan pengelolaan lowongan
+Workflow memakai Node.js 20 dan menginstal Chromium Playwright. Job dinyatakan gagal hanya jika seluruh tautan tersimpan gagal.
 
-Setelah login, pengguna dapat membuka halaman **Kelola tautan** dan menyimpan URL pencarian JobStreet. URL baru langsung diambil sekali; tautan tersimpan kemudian diperbarui otomatis dua kali sehari. Halaman menampilkan hasil serta waktu pembaruan otomatis terakhir. Pengguna dapat mengganti URL pencarian atau menghapusnya; scrape ulang manual tersedia saat menambahkan atau mengganti URL. Firecrawl memakai structured JSON, schema yang dihasilkan dari Zod, `onlyMainContent`, dan cache 10 menit.
+## Fitur lain
 
-Penggantian URL akan mengambil dan menyimpan hasil URL baru terlebih dahulu. Data lama baru dihapus setelah hasil baru valid dan berhasil disimpan. Penghapusan sumber hanya membuang lowongan yatim yang tidak lagi terhubung ke sumber lain. Deskripsi disimpan sebagai teks biasa maksimal 2.000 karakter.
+Daftar lowongan memiliki pagination, pencarian judul, serta filter **Hari ini** atau **Semua (7 hari)** berdasarkan zona waktu Asia/Jakarta. Lowongan tanpa tanggal posting yang diketahui tetap ditampilkan dengan label **Tanggal tidak diketahui**; data dibersihkan setelah tidak terlihat selama 14 hari. Detail menampilkan deskripsi teks bersih dan tautan ke lowongan asli. Penghapusan tautan hanya menghapus lowongan yatim yang tidak dipakai sumber lain.
 
-Daftar lowongan dirender sebagai Server Component dengan pagination bernomor, urutan waktu posting terbaru (waktu yang terbaca lebih dulu, lalu data tanpa waktu posting berdasarkan waktu scrape), pencarian judul pekerjaan, dan filter **Hari ini** atau **Semua (7 hari)**. Filter Hari ini mengikuti tanggal kalender Asia/Jakarta dan hanya menyertakan waktu posting yang terbaca; Semua mencakup lowongan yang diposting dalam tujuh hari terakhir serta data yang baru di-scrape dalam rentang tersebut tetapi waktu postingnya tidak tersedia. Nomor halaman dan jumlah hasil menyesuaikan filter. Query Supabase dan halaman detail juga menerapkan batas 7 hari. Perusahaan dan lokasi ditentukan melalui filter di URL sumber JobStreet. Hanya lowongan JobStreet yang ditampilkan. Halaman daftar hanya mengambil kolom ringan, dan deskripsi diambil saat detail lowongan dibuka. Data daftar, detail, dan ringkasan dibaca langsung dari Supabase agar perubahan SQL langsung terlihat tanpa menunggu cache.
+Layanan dashboard membaca data Supabase di sisi server menggunakan `SUPABASE_URL` dan `SUPABASE_SERVICE_ROLE_KEY`; keduanya tidak dikirim ke browser. Scraper memakai key yang sama hanya di GitHub Actions. Perubahan ini tidak mengubah alur pencocokan CV.
 
-Endpoint scrape hanya menerima URL HTTP/HTTPS pada domain JobStreet (maksimal 1.000 URL per batch), memerlukan sesi login, dan dibatasi lima permintaan per menit per akun. Data sumber, lowongan, batch scrape, dan file CV dipisahkan berdasarkan akun; sesi pengguna lain tidak dapat mengaksesnya. Firecrawl mengekstrak `job_title`, `company_name`, `location`, `job_description`, dan `posted_time`, serta `job_url` agar detail lowongan dapat dibuka. `posted_time` disimpan sebagai teks persis seperti yang tampil pada kartu; filter dan umur posting dihitung dari teks itu dengan waktu scrape sebagai acuan. `FIRECRAWL_API_KEY` dan Supabase service-role key hanya digunakan server-side.
-
-## Scrape otomatis dua kali sehari
-
-Setelah menjalankan `supabase.sql`, tambahkan `APP_BASE_URL` (URL production HTTPS), `CRON_SECRET` (secret acak panjang), dan `FIRECRAWL_WEBHOOK_SECRET` (signing secret dari pengaturan Advanced Firecrawl) ke environment production Vercel. Buat job di cron-job.org dengan metode `POST` ke `https://<domain-production>/api/cron/scrape`, header `Authorization: Bearer <CRON_SECRET>`, dan jadwal `0 0,12 * * *` dengan zona waktu `Asia/Jakarta` (00.00 dan 12.00 WIB). Jangan menaruh secret di URL.
-
-Endpoint terjadwal memproses tautan tersimpan untuk akun Taufik dan Alya, mencegah duplikasi per slot jadwal, dan melewati akun yang masih memiliki batch aktif. Halaman Kelola tautan menampilkan status serta waktu Jakarta dari pembaruan otomatis terakhir; status berhasil/gagal disimpan per sumber. Firecrawl mengirim callback hasil setelah batch selesai; callback memverifikasi HMAC `X-Firecrawl-Signature` sebelum menyimpan lowongan. Karena paket Vercel Hobby hanya mengizinkan Cron Vercel sekali sehari, pemicu dua kali sehari berasal dari cron-job.org; pemanggilan endpoint dan scrape tetap menggunakan kuota fungsi Vercel dan kredit Firecrawl. Pastikan project Firecrawl memiliki signing secret yang sama dengan `FIRECRAWL_WEBHOOK_SECRET`.
-
-## Replay hasil Firecrawl tanpa kredit
-
-Saat berjalan dengan `npm run dev`, scrape sukses dengan satu URL disimpan lokal per akun di `.cache/last-extract-<username>.json`. Route development `POST /api/scrape/replay` dapat memproses file akun yang sedang masuk tanpa request atau kredit Firecrawl baru.
-
-Hanya domain JobStreet yang diterima. Pastikan konfigurasi Supabase menunjuk ke database yang memang ingin digunakan untuk pengujian. Lowongan tanpa tanggal posting yang terbaca tetap memiliki tanggal posting kosong; tanggal pertama kali ditemukan tidak digunakan sebagai pengganti tanggal posting.
-
-## Peremajaan dan retensi lowongan
-
-Jalankan `supabase.sql` di Supabase SQL Editor untuk migrasi `scraped_at`, index, RLS baca-publik/tulis-server, tabel progres/rate-limit, RPC upsert dan pembersihan, serta jadwal `pg_cron`. Jalankan ulang SQL tersebut setelah pembaruan untuk migrasi otomatis dari `posted_text`/`posted_at` ke satu kolom `posted_time`; nilai `posted_text` lama dipertahankan bila tersedia. Lowongan tanpa waktu posting yang dapat dibaca tidak ditampilkan. Jadwal harian menghapus data yang tidak diperbarui dalam tujuh hari. Skema saat ini tidak memiliki `expires_at`.
-
-Jika scrape gagal atau hasilnya kosong, data lama tetap dipertahankan. Lowongan yang terhubung ke sumber lain tidak ikut dihapus ketika salah satu sumber dihapus. Batch progres disimpan selama tujuh hari. Untuk menjalankan cron, ekstensi `pg_cron` harus tersedia/diizinkan pada proyek Supabase.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Untuk memeriksa scraper: `npm run test:scraper`, `npm run lint`, dan `npm run build`.
 
 ## Deploy on Vercel
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Deploy aplikasi Next.js ke Vercel dan atur environment aplikasi yang diperlukan:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `TAUFIK_PASSWORD` dan/atau `ALYA_PASSWORD` hanya saat migrasi login awal
+- `GEMINI_API_KEY` dan opsional `GEMINI_MODEL` untuk analisis CV
+- `GITHUB_REPOSITORY`, misalnya `pemilik/repositori`
+- `GITHUB_REF_NAME=main`
+- `GITHUB_TOKEN` berisi Personal Access Token GitHub yang dapat menjalankan workflow pada repositori tersebut
+
+Setelah redeploy, aktifkan GitHub Actions di repository dan tambahkan `SUPABASE_URL` serta `SUPABASE_SERVICE_ROLE_KEY` sebagai repository secrets. Untuk pemicu scrape segera dari Vercel, token GitHub perlu permission **Actions: read and write** pada repository. Jadwal otomatis tetap dijalankan oleh workflow tanpa konfigurasi tambahan di Vercel. Jangan menaruh service-role key atau token GitHub pada variabel yang diawali `NEXT_PUBLIC_`. Setelah keduanya berhasil login, password legacy environment dapat dihapus.

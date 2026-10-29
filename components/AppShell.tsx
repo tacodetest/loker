@@ -28,6 +28,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [sessionGeneration, setSessionGeneration] = useState(0);
   const [userName, setUserName] = useState<string | null>(null);
   const [logoutLoading, setLogoutLoading] = useState(false);
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
+  const logoutDialogRef = useRef<HTMLDivElement>(null);
   const lastActivityAt = useRef(0);
   const sessionTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const endingSession = useRef(false);
@@ -145,9 +147,20 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   }, [endSession, pathname]);
 
   async function logout() {
+    setLogoutConfirmOpen(false);
     setLogoutLoading(true);
     await endSession();
   }
+
+  useEffect(() => {
+    if (!logoutConfirmOpen) return;
+    logoutDialogRef.current?.focus();
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setLogoutConfirmOpen(false);
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [logoutConfirmOpen]);
 
   if (pathname === "/login") return <>{children}</>;
 
@@ -162,9 +175,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         />
       )}
       <aside className={`app-sidebar${sidebarOpen ? " app-sidebar-open" : ""}`}>
-        <Link aria-label="Altaf Resume Jobstreet, halaman ringkasan" className="brand" href="/" onClick={() => setSidebarOpen(false)}>
+        <Link aria-label="Altaf Resume Job, halaman ringkasan" className="brand" href="/" onClick={() => setSidebarOpen(false)}>
           <span>
-            <strong>Altaf Resume Jobstreet</strong>
+            <strong>Altaf Resume Job</strong>
             <small>PERSONAL JOB HUB</small>
           </span>
         </Link>
@@ -193,7 +206,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
         <div className="sidebar-account">
           <span>{userName ? `Masuk sebagai ${userName}` : "Sesi pengguna"}</span>
-          <button className="sidebar-logout" disabled={logoutLoading} onClick={logout} type="button">
+          <button className="sidebar-logout" disabled={logoutLoading} onClick={() => setLogoutConfirmOpen(true)} type="button">
             {logoutLoading ? "Keluar..." : "Keluar"}
           </button>
         </div>
@@ -229,6 +242,33 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           Lowongan dari JobStreet · Penyimpanan terkelola pribadi
         </footer>
       </div>
+      {logoutConfirmOpen && (
+        <div
+          className="result-modal-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setLogoutConfirmOpen(false);
+          }}
+        >
+          <div
+            aria-describedby="logout-modal-description"
+            aria-labelledby="logout-modal-title"
+            aria-modal="true"
+            className="result-modal result-modal-confirm"
+            ref={logoutDialogRef}
+            role="alertdialog"
+            tabIndex={-1}
+          >
+            <button aria-label="Tutup" className="result-modal-close" onClick={() => setLogoutConfirmOpen(false)} type="button">×</button>
+            <span aria-hidden="true" className="result-modal-icon">?</span>
+            <h2 id="logout-modal-title">Keluar dari aplikasi?</h2>
+            <p id="logout-modal-description">Anda akan kembali ke halaman login dan sesi saat ini akan berakhir.</p>
+            <div className="result-modal-actions">
+              <button className="button button-secondary" onClick={() => setLogoutConfirmOpen(false)} type="button">Batal</button>
+              <button autoFocus className="button button-danger" onClick={() => void logout()} type="button">Keluar</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

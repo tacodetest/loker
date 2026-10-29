@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export default function ChangePasswordForm() {
   const [currentPassword, setCurrentPassword] = useState("");
@@ -9,13 +9,27 @@ export default function ChangePasswordForm() {
   const [message, setMessage] = useState("");
   const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [dialog, setDialog] = useState<{ variant: "success" | "error"; title: string; message: string } | null>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!dialog) return;
+    dialogRef.current?.focus();
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setDialog(null);
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [dialog]);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setMessage("");
     setSuccess(false);
     if (newPassword !== confirmPassword) {
-      setMessage("Konfirmasi password baru tidak sama.");
+      const mismatchMessage = "Konfirmasi password baru tidak sama.";
+      setMessage(mismatchMessage);
+      setDialog({ variant: "error", title: "Password belum sesuai", message: mismatchMessage });
       return;
     }
 
@@ -43,15 +57,20 @@ export default function ChangePasswordForm() {
       setNewPassword("");
       setConfirmPassword("");
       setSuccess(true);
-      setMessage("Password berhasil diganti.");
+      const successMessage = "Password berhasil diganti.";
+      setMessage(successMessage);
+      setDialog({ variant: "success", title: "Password berhasil diganti", message: successMessage });
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Password tidak dapat diganti.");
+      const errorMessage = error instanceof Error ? error.message : "Password tidak dapat diganti.";
+      setMessage(errorMessage);
+      setDialog({ variant: "error", title: "Gagal mengganti password", message: errorMessage });
     } finally {
       setLoading(false);
     }
   }
 
   return (
+    <>
     <form className="content-card account-password-form" onSubmit={submit}>
       <div className="section-heading">
         <div>
@@ -107,5 +126,32 @@ export default function ChangePasswordForm() {
         </button>
       </div>
     </form>
+    {dialog && (
+      <div
+        className="result-modal-backdrop"
+        onMouseDown={(event) => {
+          if (event.target === event.currentTarget) setDialog(null);
+        }}
+      >
+        <div
+          aria-describedby="password-modal-description"
+          aria-labelledby="password-modal-title"
+          aria-modal="true"
+          className={`result-modal result-modal-${dialog.variant}`}
+          ref={dialogRef}
+          role={dialog.variant === "error" ? "alertdialog" : "dialog"}
+          tabIndex={-1}
+        >
+          <button aria-label="Tutup" className="result-modal-close" onClick={() => setDialog(null)} type="button">×</button>
+          <span aria-hidden="true" className="result-modal-icon">{dialog.variant === "success" ? "✓" : "!"}</span>
+          <h2 id="password-modal-title">{dialog.title}</h2>
+          <p id="password-modal-description">{dialog.message}</p>
+          <div className="result-modal-actions">
+            <button autoFocus className={`button ${dialog.variant === "error" ? "button-danger" : "button-primary"}`} onClick={() => setDialog(null)} type="button">Mengerti</button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }

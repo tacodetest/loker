@@ -1,0 +1,9 @@
+export const DATE_RANGE_DAYS = 7;
+export const MAX_PAGES_PER_LINK = 3;
+export const DETAIL_PER_RUN = 100;
+export const MAX_DETAIL_ATTEMPTS = 3;
+export const DELAY_MIN_MS = 5000;
+export const DELAY_MAX_MS = 8000;
+export const CONCURRENCY = 1;
+export const DESCRIPTION_MAX_CHARS = 8000;
+export const PAGE_TIMEOUT_MS = 30_000;

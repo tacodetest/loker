@@ -3,7 +3,23 @@ import { notFound } from "next/navigation";
 import { getJobDetail } from "@/lib/jobs";
 import { requireCurrentUser } from "@/lib/auth";
 
+export const instant = false;
+
 type SearchParams = Promise<{ url?: string | string[] }>;
+
+function formatPostedAt(value: string | null) {
+  if (!value) return "Tanggal tidak diketahui";
+  if (/^\d{4}-\d{2}-\d{2}(?:T|$)/.test(value)) {
+    const date = new Date(value);
+    if (!Number.isNaN(date.getTime())) {
+      return new Intl.DateTimeFormat("id-ID", {
+        dateStyle: "long",
+        timeZone: "Asia/Jakarta",
+      }).format(date);
+    }
+  }
+  return value;
+}
 
 export default async function JobDetail({
   searchParams,
@@ -30,12 +46,13 @@ export default async function JobDetail({
       </header>
       <article className="content-card job-detail-card">
         <p className="job-detail-date">
-          {job.posted_time || "Waktu posting tidak tersedia"}
+          {formatPostedAt(job.posted_time)}
         </p>
         <h2 className="job-detail-title">{job.title}</h2>
         <p className="job-detail-meta">
           {job.company || "Perusahaan tidak dicantumkan"}
           {job.location ? ` · ${job.location}` : ""}
+          {job.employment_type ? ` · ${job.employment_type}` : ""}
         </p>
         {job.salary && <p className="job-salary">{job.salary}</p>}
         <hr className="job-detail-divider" />

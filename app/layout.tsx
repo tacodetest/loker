@@ -3,8 +3,8 @@ import AppShell from "@/components/AppShell";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Altaf Resume Jobstreet · Personal Job Hub",
-  description: "Lowongan terbaru dari JobStreet",
+  title: "Altaf Resume Job",
+  description: "Lowongan terbaru dari JobStreet dan Glints",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

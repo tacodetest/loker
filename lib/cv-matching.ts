@@ -5,8 +5,8 @@ import { z } from "zod";
 import type { JobForMatching } from "./jobs";
 
 const maxResumeTextLength = 12_000;
-const maxCandidateJobs = 40;
-const maxDisplayedMatches = 20;
+const maxCandidateJobs = 120;
+const maxDisplayedMatches = 30;
 
 PDFParse.setWorker(getData());
 
@@ -32,6 +32,37 @@ const contactPatterns = [
   /\b(?:[a-z0-9-]+\.)+(?:com|id|net|org|io|co|dev)\b\S*/gi,
 ];
 
+function parseGeminiJson(text: string): unknown {
+  const trimmed = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    // Gemini occasionally adds prose around an otherwise valid JSON object.
+  }
+
+  const start = trimmed.indexOf("{");
+  if (start < 0) throw new Error("JSON object not found");
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < trimmed.length; index += 1) {
+    const char = trimmed[index];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === '"') inString = false;
+      continue;
+    }
+    if (char === '"') inString = true;
+    else if (char === "{") depth += 1;
+    else if (char === "}") {
+      depth -= 1;
+      if (depth === 0) return JSON.parse(trimmed.slice(start, index + 1));
+    }
+  }
+  throw new Error("Complete JSON object not found");
+}
+
 const matchingResultSchema = z.object({
   keywords: z.array(z.string().trim().min(1).max(60)).min(3).max(20),
   items: z.array(z.object({
@@ -45,7 +76,7 @@ const matchingResultSchema = z.object({
 });
 
 export type CvJobMatch = {
-  job: Pick<JobForMatching, "job_url" | "title" | "company" | "location" | "salary" | "posted_time" | "scraped_at">;
+  job: Pick<JobForMatching, "job_url" | "title" | "company" | "location" | "salary" | "posted_time" | "scraped_at" | "site">;
   score: number;
   matchedKeywords: string[];
   explanation: string;
@@ -115,19 +146,34 @@ function tokenize(value: string) {
 }
 
 function selectCandidateJobs(resumeText: string, jobs: JobForMatching[]) {
-  const resumeTokens = new Set(tokenize(resumeText)
+  const normalizedTokens = (value: string) => [...new Set(tokenize(value)
     .map((token) => token.replace(/^[^a-z]+|[^a-z0-9+#]+$/g, ""))
-    .filter((token) => token.length >= 3 && !stopWords.has(token)));
+    .filter((token) => token.length >= 3 && !stopWords.has(token)))];
+  const resumeTokens = normalizedTokens(resumeText);
+  const resumeTokenSet = new Set(resumeTokens);
+  const resumeTitle = resumeText.toLocaleLowerCase("id-ID");
 
   return jobs
     .map((job) => {
-      const titleTokens = new Set(tokenize(job.title));
-      const descriptionTokens = new Set(tokenize(job.description ?? ""));
+      const titleTokens = new Set(normalizedTokens(job.title));
+      const descriptionTokens = new Set(normalizedTokens(job.description ?? ""));
+      const companyTokens = new Set(normalizedTokens(job.company ?? ""));
       let retrievalScore = 0;
-      for (const token of resumeTokens) {
-        if (titleTokens.has(token)) retrievalScore += 3;
-        if (descriptionTokens.has(token)) retrievalScore += 1;
+      for (const token of resumeTokenSet) {
+        if (titleTokens.has(token)) retrievalScore += 6;
+        if (descriptionTokens.has(token)) retrievalScore += 2;
+        if (companyTokens.has(token)) retrievalScore += 1;
       }
+
+      const title = job.title.toLocaleLowerCase("id-ID");
+      const titleWords = title.split(/[^a-z0-9+#]+/).filter((word) => word.length >= 4);
+      for (const titleWord of titleWords) {
+        if (resumeTitle.includes(titleWord)) retrievalScore += 3;
+      }
+      const coverage = resumeTokens.length
+        ? [...titleTokens].filter((token) => resumeTokenSet.has(token)).length / titleTokens.size
+        : 0;
+      retrievalScore += Math.round(coverage * 4);
       return { job, retrievalScore };
     })
     .sort((a, b) =>
@@ -161,7 +207,8 @@ async function evaluateMatches(
     "Gunakan bahasa Indonesia. Jangan menilai umur, gender, agama, foto, atau atribut sensitif.",
     "Ekstrak 3-20 kata kunci profesional yang benar-benar didukung CV, seperti keahlian, teknologi, sertifikasi, dan pengalaman. Jangan mengarang.",
     `Nilai kandidat lowongan berdasarkan bukti dari CV dan deskripsi. Pilih paling banyak ${maxDisplayedMatches} lowongan yang memang relevan; boleh mengembalikan kurang dari itu atau kosong jika tidak ada yang cocok.`,
-    "Urutkan dari paling cocok. Beri score bilangan bulat 0-100 sebagai perkiraan kecocokan, matched_keywords yang didukung oleh CV dan lowongan, penjelasan singkat, 1-3 bukti kecocokan, dan 0-3 persyaratan yang belum tampak di CV.",
+    "Urutkan dari paling cocok. Nilai kecocokan dengan bobot: 35% kesesuaian jabatan dan industri, 35% keahlian/tools/sertifikasi, 20% pengalaman dan tanggung jawab yang relevan, 10% lokasi dan model kerja. Jangan memberi score tinggi hanya karena kata yang sama; pertimbangkan sinonim dan hubungan profesional.",
+    "Beri score bilangan bulat 0-100 sebagai perkiraan kecocokan, matched_keywords yang didukung oleh CV dan lowongan, penjelasan singkat, 1-3 bukti kecocokan, dan 0-3 persyaratan yang belum tampak di CV. Lowongan tetap relevan meskipun belum terverifikasi seluruh persyaratannya.",
     "Gunakan job_url persis dari kandidat yang diberikan. Jangan mengarang lowongan atau informasi. Jika persyaratan tidak disebut CV, tulis sebagai belum terlihat, bukan dipastikan tidak dimiliki.",
     "Balas hanya JSON valid dengan bentuk: {\"keywords\":[\"...\"],\"items\":[{\"job_url\":\"...\",\"score\":85,\"matched_keywords\":[\"...\"],\"explanation\":\"...\",\"matching_points\":[\"...\"],\"missing_points\":[\"...\"]}]}",
     `CV (kontak dan bagian identitas sudah disamarkan):\n${resumeText}`,
@@ -216,8 +263,9 @@ async function evaluateMatches(
 
   let parsedOutput: unknown;
   try {
-    parsedOutput = JSON.parse(output);
+    parsedOutput = parseGeminiJson(output);
   } catch {
+    console.error("[cv] Gemini mengembalikan JSON yang tidak dapat diparsing:", output.slice(0, 500));
     throw new CvAnalysisError("Gemini mengembalikan format analisis yang tidak valid. Coba lagi.", 502);
   }
   const parsed = matchingResultSchema.safeParse(parsedOutput);
@@ -253,6 +301,7 @@ export async function analyzeResume(resumeText: string, jobs: JobForMatching[]) 
           salary: job.salary,
           posted_time: job.posted_time,
           scraped_at: job.scraped_at,
+          site: job.site,
         },
         score: item.score,
         matchedKeywords: item.matched_keywords,

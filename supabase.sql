@@ -273,7 +273,6 @@ $$;
 
 create table if not exists scrape_batches (
   id uuid primary key,
-  firecrawl_batch_id text unique,
   requested_urls text[] not null,
   replacements jsonb not null default '[]'::jsonb,
   status text not null check (status in ('pending', 'scraping', 'done', 'failed')),
@@ -507,9 +506,9 @@ begin
   perform pg_advisory_xact_lock(hashtext('loker_app_sessions'));
   delete from app_sessions where expires_at <= now();
 
-  if exists (select 1 from app_sessions where user_id = p_user_id) then
-    return false;
-  end if;
+  -- Login on another device replaces the previous session so logout stale state
+  -- and switching devices never leave an account permanently locked.
+  delete from app_sessions where user_id = p_user_id;
 
   insert into app_sessions (id, user_id, token_hash, expires_at)
   values (p_id, p_user_id, p_token_hash, p_expires_at);

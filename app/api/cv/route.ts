@@ -1,3 +1,4 @@
+import { request as httpsRequest } from "node:https";
 import { connection, NextResponse } from "next/server";
 import { getRequestUser, type AppUserId } from "@/lib/auth";
 import { db } from "@/lib/supabase";
@@ -7,8 +8,65 @@ const maxFileSize = 10 * 1024 * 1024;
 const signedUrlLifetimeSeconds = 600;
 const noStore = { headers: { "Cache-Control": "no-store, max-age=0" } };
 
+function jsonResponse(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      "Cache-Control": "no-store, max-age=0",
+      "Content-Type": "application/json; charset=utf-8",
+    },
+  });
+}
+
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Terjadi kesalahan saat mengakses CV.";
+}
+
+async function uploadStoredCv(url: string, path: string, bytes: Buffer, serviceRoleKey: string) {
+  const target = new URL(url);
+  target.pathname = `${target.pathname.replace(/\/$/, "")}/storage/v1/object/${bucketName}/${path}`;
+  return await new Promise<void>((resolve, reject) => {
+    const req = httpsRequest(target, {
+      method: "POST",
+      headers: {
+        apikey: serviceRoleKey,
+        authorization: `Bearer ${serviceRoleKey}`,
+        "content-type": "application/pdf",
+        "cache-control": "0",
+        "content-length": String(bytes.length),
+        "x-upsert": "true",
+      },
+    }, (response) => {
+      const chunks: Buffer[] = [];
+      response.on("data", (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+      response.on("end", () => {
+        const body = Buffer.concat(chunks).toString("utf8");
+        if ((response.statusCode ?? 500) >= 400) reject(new Error(body || `Storage mengembalikan HTTP ${response.statusCode}.`));
+        else resolve();
+      });
+    });
+    req.on("error", reject);
+    req.end(bytes);
+  });
+}
+
+async function removeStoredCv(objectPath: string) {
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supabaseUrl || !serviceRoleKey) throw new Error("Konfigurasi Supabase tidak lengkap.");
+
+  const encodedPath = objectPath.split("/").map(encodeURIComponent).join("/");
+  const response = await fetch(`${supabaseUrl}/storage/v1/object/${bucketName}/${encodedPath}`, {
+    method: "DELETE",
+    headers: {
+      apikey: serviceRoleKey,
+      Authorization: `Bearer ${serviceRoleKey}`,
+    },
+    cache: "no-store",
+  });
+  if (!response.ok && response.status !== 404) {
+    throw new Error((await response.text()) || `Storage mengembalikan HTTP ${response.status}.`);
+  }
 }
 
 async function findCvPath(supabase: ReturnType<typeof db>, userId: AppUserId) {
@@ -98,7 +156,8 @@ export async function POST(req: Request) {
   if (typeof file === "string" || !file) {
     return NextResponse.json({ error: "Pilih file CV berformat PDF." }, { status: 400, ...noStore });
   }
-  if (!file.name.toLowerCase().endsWith(".pdf") || (file.type && file.type !== "application/pdf")) {
+  const supportedMimeTypes = ["application/pdf", "application/octet-stream", "binary/octet-stream"];
+  if (!file.name.toLowerCase().endsWith(".pdf") || (file.type && !supportedMimeTypes.includes(file.type))) {
     return NextResponse.json({ error: "File harus berformat PDF." }, { status: 400, ...noStore });
   }
   if (file.size === 0 || file.size > maxFileSize) {
@@ -113,14 +172,12 @@ export async function POST(req: Request) {
   try {
     const supabase = db();
     const objectPath = `${user.id}/cv.pdf`;
-    const { error } = await supabase.storage
-      .from(bucketName)
-      .upload(objectPath, file, {
-        cacheControl: "0",
-        contentType: "application/pdf",
-        upsert: true,
-      });
-    if (error) throw new Error(error.message);
+    const fileBytes = await file.arrayBuffer();
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!supabaseUrl || !serviceRoleKey) throw new Error("Konfigurasi Supabase tidak lengkap.");
+    const encodedPath = objectPath.split("/").map(encodeURIComponent).join("/");
+    await uploadStoredCv(supabaseUrl, encodedPath, Buffer.from(fileBytes), serviceRoleKey);
 
     const { error: analysisError } = await supabase
       .from("cv_analyses")
@@ -146,8 +203,11 @@ export async function DELETE(req: Request) {
     const supabase = db();
     const objectPath = await findCvPath(supabase, user.id);
     if (objectPath) {
-      const { error } = await supabase.storage.from(bucketName).remove([objectPath]);
-      if (error) throw new Error(error.message);
+      await removeStoredCv(objectPath);
+
+      if (await findCvPath(supabase, user.id)) {
+        throw new Error("File CV masih tersimpan dan gagal dihapus.");
+      }
     }
 
     const { error: analysisError } = await supabase
@@ -156,10 +216,10 @@ export async function DELETE(req: Request) {
       .eq("owner_id", user.id);
     if (analysisError) throw new Error(analysisError.message);
 
-    return NextResponse.json({ ok: true }, noStore);
+    return jsonResponse({ ok: true });
   } catch (error) {
-    const message = errorMessage(error);
+    const message = errorMessage(error) || "Gagal menghapus CV.";
     console.error("[cv] Gagal menghapus CV:", message);
-    return NextResponse.json({ error: message }, { status: 500, ...noStore });
+    return jsonResponse({ error: message }, 500);
   }
 }

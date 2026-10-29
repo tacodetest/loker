@@ -18,16 +18,20 @@ function calendarDay(value: Date) {
 export function getPostedAge(postedTime: string | null, scrapedAt: string) {
   const parsedDate = parsePostedTime(postedTime, scrapedAt);
   if (!parsedDate || Number.isNaN(parsedDate.getTime())) {
-    return { label: postedTime?.trim() || "Hari tidak diketahui", className: "job-age job-age-unknown" };
+    return { label: postedTime?.trim() || "Tanggal tidak diketahui", className: "job-age job-age-unknown" };
   }
 
   const days = Math.max(0, Math.floor((calendarDay(new Date()) - calendarDay(parsedDate)) / 86_400_000));
+  const isAbsoluteDate = Boolean(postedTime && /^\d{4}-\d{2}-\d{2}(?:T|$)/.test(postedTime));
+  const label = isAbsoluteDate
+    ? days === 0 ? "Hari ini" : `${days} hari lalu`
+    : postedTime?.trim();
   if (days === 0) {
-    return { label: postedTime?.trim() || "Hari ini", className: "job-age job-age-fresh" };
+    return { label: label || "Hari ini", className: "job-age job-age-fresh" };
   }
 
   return {
-    label: postedTime?.trim() || `${days} hari lalu`,
+    label: label || `${days} hari lalu`,
     className: days <= 3 ? "job-age job-age-fresh" : "job-age",
   };
 }

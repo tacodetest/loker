@@ -93,7 +93,7 @@ export default function LoginForm() {
           </span>
           <p className="lg-eyebrow">PERSONAL JOB HUB</p>
           <h1 id="login-title">Masuk</h1>
-          <p className="lg-desc">Masuk ke Altaf Resume Jobstreet.</p>
+          <p className="lg-desc">Masuk ke Altaf Resume Job.</p>
         </header>
 
         <form className="lg-form" onSubmit={submit}>

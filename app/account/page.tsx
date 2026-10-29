@@ -1,6 +1,8 @@
 import ChangePasswordForm from "@/components/ChangePasswordForm";
 import { requireCurrentUser } from "@/lib/auth";
 
+export const instant = false;
+
 export default async function AccountPage() {
   const user = await requireCurrentUser();
   return (

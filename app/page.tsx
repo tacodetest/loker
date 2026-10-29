@@ -7,6 +7,8 @@ import { getJobsPage } from "@/lib/jobs";
 import { requireCurrentUser } from "@/lib/auth";
 import { DashboardSkeleton } from "@/components/PageSkeletons";
 
+export const instant = false;
+
 function formatDate(value: string | null) {
   if (!value) return "Tanggal tidak diketahui";
   return new Intl.DateTimeFormat("id-ID", { dateStyle: "medium" }).format(new Date(value));
@@ -50,7 +52,7 @@ async function HomeContent() {
         </article>
         <article className="stat-card">
           <span aria-hidden="true" className="stat-icon stat-orange">↗</span>
-          <div><span>Sumber pencarian</span><strong>{stats.sources}</strong><small>JobStreet</small></div>
+          <div><span>Sumber pencarian</span><strong>{stats.sources}</strong><small>JobStreet dan Glints</small></div>
         </article>
         <article className="stat-card">
           <span aria-hidden="true" className="stat-icon stat-purple">⌕</span>
@@ -60,7 +62,7 @@ async function HomeContent() {
 
       <section aria-labelledby="latest-heading" className="content-card overview-card">
         <div className="section-heading">
-          <div><h2 id="latest-heading">Lowongan terbaru</h2><p>Hasil gabungan dari seluruh tautan yang tersimpan.</p></div>
+          <div><h2 id="latest-heading">Lowongan terbaru</h2><p>Hasil gabungan dari seluruh tautan yang tersimpan.</p><small>{stats.pendingJobs} lowongan masih menunggu pengambilan detail.</small></div>
           <Link className="button button-secondary" href="/jobs">Lihat semua</Link>
         </div>
         {recentJobs.length === 0 ? (
@@ -77,7 +79,7 @@ async function HomeContent() {
                     <div className="job-meta">
                       <span>{job.company || "Perusahaan tidak dicantumkan"}</span>
                       {job.location && <span>{job.location}</span>}
-                      <span className="site-tag">JobStreet</span>
+                      <span className="site-tag">{job.site?.includes("glints") ? "Glints" : "JobStreet"}</span>
                     </div>
                     {job.salary && <p className="job-salary">{job.salary}</p>}
                     <p className="job-found">Diperbarui {formatDate(job.scraped_at)}</p>
@@ -95,7 +97,7 @@ async function HomeContent() {
       <section className="content-card quick-source">
         <div>
           <span aria-hidden="true" className="quick-icon">↗</span>
-          <div><h2>Tambah sumber pencarian</h2><p>Tambahkan URL JobStreet satu per satu.</p></div>
+          <div><h2>Tambah sumber pencarian</h2><p>Tambahkan URL JobStreet atau Glints.</p></div>
         </div>
         <Link className="button button-primary" href="/sources">Kelola tautan</Link>
       </section>

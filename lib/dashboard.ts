@@ -7,8 +7,8 @@ export async function getDashboardStats(ownerId: AppUserId) {
   const supabase = db();
   const [jobStats, sources] = await Promise.all([
     getRecentJobStats(ownerId),
-    supabase.from("sources").select("url", { count: "exact", head: true })
-      .eq("owner_id", ownerId).ilike("url", "%jobstreet.%"),
+    supabase.from("saved_links").select("url", { count: "exact", head: true })
+      .eq("owner_id", ownerId).eq("is_active", true),
   ]);
   if (sources.error) {
     console.error("[dashboard] Gagal memuat ringkasan:", sources.error.message);

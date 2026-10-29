@@ -23,6 +23,7 @@ type CvAnalysis = {
       location: string | null;
       salary: string | null;
       posted_time: string | null;
+      site: string | null;
       scraped_at: string;
     };
     score: number;
@@ -37,22 +38,25 @@ const cvAnalysisSchema = z.object({
   method: z.enum(["ai", "local"]).optional(),
   analyzedAt: z.string(),
   keywords: z.array(z.string()),
-  matches: z.array(z.object({
-    job: z.object({
-      job_url: z.string(),
-      title: z.string(),
-      company: z.string().nullable(),
-      location: z.string().nullable(),
-      salary: z.string().nullable(),
-      posted_time: z.string().nullable(),
-      scraped_at: z.string(),
+  matches: z.array(
+    z.object({
+      job: z.object({
+        job_url: z.string(),
+        title: z.string(),
+        company: z.string().nullable(),
+        location: z.string().nullable(),
+        salary: z.string().nullable(),
+        posted_time: z.string().nullable(),
+        site: z.string().nullable().optional().default(null),
+        scraped_at: z.string(),
+      }),
+      score: z.number().min(0).max(100),
+      matchedKeywords: z.array(z.string()),
+      explanation: z.string(),
+      matchingPoints: z.array(z.string()),
+      missingPoints: z.array(z.string()),
     }),
-    score: z.number().min(0).max(100),
-    matchedKeywords: z.array(z.string()),
-    explanation: z.string(),
-    matchingPoints: z.array(z.string()),
-    missingPoints: z.array(z.string()),
-  })),
+  ),
 });
 
 type DialogState = {
@@ -73,11 +77,11 @@ function isRecord(value: unknown): value is ApiRecord {
 function parseCv(value: unknown): CvInfo | null {
   if (value === null) return null;
   if (
-    !isRecord(value)
-    || typeof value.name !== "string"
-    || typeof value.url !== "string"
-    || !(typeof value.size === "number" || value.size === null)
-    || !(typeof value.updatedAt === "string" || value.updatedAt === null)
+    !isRecord(value) ||
+    typeof value.name !== "string" ||
+    typeof value.url !== "string" ||
+    !(typeof value.size === "number" || value.size === null) ||
+    !(typeof value.updatedAt === "string" || value.updatedAt === null)
   ) {
     throw new Error("Respons data CV dari server tidak valid.");
   }
@@ -93,7 +97,9 @@ async function responseJson(response: Response) {
   const body: unknown = await response.json().catch(() => null);
   if (!isRecord(body)) throw new Error("Respons server tidak valid.");
   if (!response.ok) {
-    throw new Error(typeof body.error === "string" ? body.error : "Permintaan gagal.");
+    throw new Error(
+      typeof body.error === "string" ? body.error : "Permintaan gagal.",
+    );
   }
   return body;
 }
@@ -103,10 +109,33 @@ function formatFileSize(size: number | null) {
   return `${(size / (1024 * 1024)).toFixed(2)} MiB`;
 }
 
-export default function CvUploadPanel({ savedAnalysis }: { savedAnalysis: unknown }) {
+function jobSourceLabel(
+  job:
+    | CvAnalysis["matches"][number]["job"]
+    | { job_url: string; site: string | null },
+) {
+  const site = job.site?.toLocaleLowerCase("id-ID") ?? "";
+  if (
+    site.includes("glint") ||
+    job.job_url.toLocaleLowerCase("id-ID").includes("glints")
+  )
+    return "Glints";
+  if (
+    site.includes("jobstreet") ||
+    job.job_url.toLocaleLowerCase("id-ID").includes("jobstreet")
+  )
+    return "JobStreet";
+  return "Sumber tidak diketahui";
+}
+
+export default function CvUploadPanel({
+  savedAnalysis,
+}: {
+  savedAnalysis: unknown;
+}) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [cv, setCv] = useState<CvInfo | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysis, setAnalysis] = useSessionState<CvAnalysis | null>(
     "cv-analysis",
@@ -147,7 +176,7 @@ export default function CvUploadPanel({ savedAnalysis }: { savedAnalysis: unknow
     return { ...parsed, method: parsed.method ?? "local" };
   }
 
-  async function loadCv() {
+  async function loadCv(showLoadedDialog = true) {
     try {
       const [cvResponse, analysisResponse] = await Promise.all([
         fetch("/api/cv", { cache: "no-store" }),
@@ -160,9 +189,21 @@ export default function CvUploadPanel({ savedAnalysis }: { savedAnalysis: unknow
       const loadedCv = parseCv(cvBody.cv);
       setCv(loadedCv);
       setAnalysis(parseAnalysis(analysisBody));
-      setDialog(loadedCv
-        ? { variant: "success", title: "CV berhasil dimuat", message: "CV dan hasil analisis tersimpan sudah ditampilkan." }
-        : { variant: "error", title: "CV belum tersedia", message: "Unggah CV PDF terlebih dahulu." });
+      if (showLoadedDialog) {
+        setDialog(
+          loadedCv
+            ? {
+                variant: "success",
+                title: "CV berhasil dimuat",
+                message: "CV dan hasil analisis tersimpan sudah ditampilkan.",
+              }
+            : {
+                variant: "error",
+                title: "CV belum tersedia",
+                message: "Unggah CV PDF terlebih dahulu.",
+              },
+        );
+      }
     } catch (error) {
       showError("Gagal memuat CV", error, "CV tidak dapat dimuat.");
     } finally {
@@ -170,10 +211,11 @@ export default function CvUploadPanel({ savedAnalysis }: { savedAnalysis: unknow
     }
   }
 
-  function refreshCv() {
-    setLoading(true);
-    void loadCv();
-  }
+  useEffect(() => {
+    queueMicrotask(() => void loadCv(false));
+    // Muat sekali saat halaman dibuka; aksi user tetap memakai loadCv secara langsung.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
     const input = event.currentTarget;
@@ -184,27 +226,46 @@ export default function CvUploadPanel({ savedAnalysis }: { savedAnalysis: unknow
     }
 
     if (
-      !file.name.toLowerCase().endsWith(".pdf")
-      || (file.type && file.type !== "application/pdf")
+      !file.name.toLowerCase().endsWith(".pdf") ||
+      (file.type &&
+        ![
+          "application/pdf",
+          "application/octet-stream",
+          "binary/octet-stream",
+        ].includes(file.type))
     ) {
       input.value = "";
       setSelectedFile(null);
-      setDialog({ variant: "error", title: "File bukan PDF", message: "Pilih CV dengan format PDF." });
+      setDialog({
+        variant: "error",
+        title: "File bukan PDF",
+        message: "Pilih CV dengan format PDF.",
+      });
       return;
     }
     if (file.size === 0 || file.size > maxFileSize) {
       input.value = "";
       setSelectedFile(null);
-      setDialog({ variant: "error", title: "Ukuran file tidak valid", message: "Ukuran CV harus lebih dari 0 dan maksimal 10 MiB." });
+      setDialog({
+        variant: "error",
+        title: "Ukuran file tidak valid",
+        message: "Ukuran CV harus lebih dari 0 dan maksimal 10 MiB.",
+      });
       return;
     }
 
     try {
-      const signature = new TextDecoder().decode(await file.slice(0, 5).arrayBuffer());
+      const signature = new TextDecoder().decode(
+        await file.slice(0, 5).arrayBuffer(),
+      );
       if (signature !== "%PDF-") {
         input.value = "";
         setSelectedFile(null);
-        setDialog({ variant: "error", title: "File bukan PDF", message: "Isi file tidak terdeteksi sebagai dokumen PDF yang valid." });
+        setDialog({
+          variant: "error",
+          title: "File bukan PDF",
+          message: "Isi file tidak terdeteksi sebagai dokumen PDF yang valid.",
+        });
         return;
       }
       setSelectedFile(file);
@@ -218,7 +279,11 @@ export default function CvUploadPanel({ savedAnalysis }: { savedAnalysis: unknow
   async function uploadCv(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedFile) {
-      setDialog({ variant: "error", title: "CV diperlukan", message: "Pilih file CV berformat PDF sebelum mengunggah." });
+      setDialog({
+        variant: "error",
+        title: "CV diperlukan",
+        message: "Pilih file CV berformat PDF sebelum mengunggah.",
+      });
       return;
     }
 
@@ -226,18 +291,25 @@ export default function CvUploadPanel({ savedAnalysis }: { savedAnalysis: unknow
     try {
       const formData = new FormData();
       formData.append("file", selectedFile);
-      const body = await responseJson(await fetch("/api/cv", {
-        method: "POST",
-        body: formData,
-      }));
+      const body = await responseJson(
+        await fetch("/api/cv", {
+          method: "POST",
+          body: formData,
+        }),
+      );
       const uploadedCv = parseCv(body.cv);
-      if (!uploadedCv) throw new Error("Server tidak mengembalikan data CV yang tersimpan.");
+      if (!uploadedCv)
+        throw new Error("Server tidak mengembalikan data CV yang tersimpan.");
 
       setCv(uploadedCv);
       setAnalysis(null);
       setSelectedFile(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
-      setDialog({ variant: "success", title: "CV berhasil diunggah", message: "CV PDF Anda tersimpan dengan aman di Supabase." });
+      setDialog({
+        variant: "success",
+        title: "CV berhasil diunggah",
+        message: "CV PDF Anda tersimpan dengan aman di Supabase.",
+      });
     } catch (error) {
       showError("Upload CV gagal", error, "CV tidak dapat diunggah.");
     } finally {
@@ -248,10 +320,12 @@ export default function CvUploadPanel({ savedAnalysis }: { savedAnalysis: unknow
   async function analyzeCv() {
     setAnalysisLoading(true);
     try {
-      const body = await responseJson(await fetch("/api/cv/analyze", {
-        method: "POST",
-        cache: "no-store",
-      }));
+      const body = await responseJson(
+        await fetch("/api/cv/analyze", {
+          method: "POST",
+          cache: "no-store",
+        }),
+      );
       setAnalysis(parseAnalysis(body));
     } catch (error) {
       showError("Analisis CV gagal", error, "CV tidak dapat dianalisis.");
@@ -264,7 +338,8 @@ export default function CvUploadPanel({ savedAnalysis }: { savedAnalysis: unknow
     setDialog({
       variant: "confirm",
       title: "Hapus CV tersimpan?",
-      message: "File CV dan hasil analisis tersimpan akan dihapus permanen dari akun ini.",
+      message:
+        "File CV dan hasil analisis tersimpan akan dihapus permanen dari akun ini.",
       action: "delete-cv",
     });
   }
@@ -273,15 +348,22 @@ export default function CvUploadPanel({ savedAnalysis }: { savedAnalysis: unknow
     setDialog(null);
     setLoading(true);
     try {
-      await responseJson(await fetch("/api/cv", {
-        method: "DELETE",
-        cache: "no-store",
-      }));
+      await responseJson(
+        await fetch("/api/cv", {
+          method: "DELETE",
+          cache: "no-store",
+        }),
+      );
       setCv(null);
       setAnalysis(null);
       setSelectedFile(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
-      setDialog({ variant: "success", title: "CV berhasil dihapus", message: "File CV dan hasil analisis tersimpan sudah dihapus dari akun ini." });
+      setDialog({
+        variant: "success",
+        title: "CV berhasil dihapus",
+        message:
+          "File CV dan hasil analisis tersimpan sudah dihapus dari akun ini.",
+      });
     } catch (error) {
       showError("Gagal menghapus CV", error, "CV tidak dapat dihapus.");
     } finally {
@@ -299,23 +381,17 @@ export default function CvUploadPanel({ savedAnalysis }: { savedAnalysis: unknow
         <div className="section-heading">
           <div>
             <h2>CV pribadi</h2>
-            <p>Unggah satu file PDF. Upload baru akan menggantikan CV yang tersimpan.</p>
+            <p>
+              Unggah satu file PDF. Upload baru akan menggantikan CV yang
+              tersimpan.
+            </p>
           </div>
         </div>
 
-        <div className="cv-load-action">
-          <button
-            className="button button-secondary"
-            disabled={loading}
-            onClick={refreshCv}
-            type="button"
-          >
-            {loading ? "Memuat..." : "Tampilkan CV tersimpan"}
-          </button>
-        </div>
-
         <form className="cv-upload-form" onSubmit={uploadCv}>
-          <label className="field-label" htmlFor="cv-file">File CV (PDF)</label>
+          <label className="field-label" htmlFor="cv-file">
+            File CV (PDF)
+          </label>
           <input
             accept=".pdf,application/pdf"
             className="text-input cv-file-input"
@@ -325,8 +401,14 @@ export default function CvUploadPanel({ savedAnalysis }: { savedAnalysis: unknow
             type="file"
           />
           <div className="upload-footer">
-            <span>{selectedFile ? selectedFile.name : "PDF, maksimal 10 MiB"}</span>
-            <button className="button button-primary" disabled={loading} type="submit">
+            <span>
+              {selectedFile ? selectedFile.name : "PDF, maksimal 10 MiB"}
+            </span>
+            <button
+              className="button button-primary"
+              disabled={loading}
+              type="submit"
+            >
               {loading ? "Menyimpan..." : "Upload CV"}
             </button>
           </div>
@@ -339,13 +421,19 @@ export default function CvUploadPanel({ savedAnalysis }: { savedAnalysis: unknow
                 <h3>{cv.name}</h3>
                 <p>
                   {formatFileSize(cv.size)}
-                  {cv.updatedAt && ` · Diperbarui ${new Intl.DateTimeFormat("id-ID", {
-                    dateStyle: "medium",
-                    timeStyle: "short",
-                  }).format(new Date(cv.updatedAt))}`}
+                  {cv.updatedAt &&
+                    ` · Diperbarui ${new Intl.DateTimeFormat("id-ID", {
+                      dateStyle: "medium",
+                      timeStyle: "short",
+                    }).format(new Date(cv.updatedAt))}`}
                 </p>
               </div>
-              <a className="button button-secondary" href={cv.url} rel="noreferrer" target="_blank">
+              <a
+                className="button button-secondary"
+                href={cv.url}
+                rel="noreferrer"
+                target="_blank"
+              >
                 Buka PDF
               </a>
               <button
@@ -357,17 +445,28 @@ export default function CvUploadPanel({ savedAnalysis }: { savedAnalysis: unknow
                 Hapus CV
               </button>
             </div>
-            <iframe className="cv-preview" src={cv.url} title="Pratinjau CV PDF" />
+            <iframe
+              className="cv-preview"
+              src={cv.url}
+              title="Pratinjau CV PDF"
+            />
           </section>
         ) : (
-          <p className="cv-empty-state">Belum ada CV yang ditampilkan. Muat CV tersimpan atau pilih PDF untuk mengunggah.</p>
+          <p className="cv-empty-state">
+            {loading
+              ? "Memuat CV tersimpan..."
+              : "Belum ada CV tersimpan. Pilih PDF untuk mengunggah."}
+          </p>
         )}
 
         <section aria-labelledby="cv-match-title" className="cv-match-section">
           <div className="cv-match-heading">
             <div>
               <h2 id="cv-match-title">Kecocokan dengan lowongan</h2>
-              <p>Analisis AI menampilkan maksimal 20 lowongan relevan dari lowongan 7 hari terakhir.</p>
+              <p>
+                Analisis AI menilai semua lowongan aktif dari database dan
+                menampilkan maksimal 30 yang paling relevan.
+              </p>
             </div>
             <button
               className="button button-primary"
@@ -376,87 +475,129 @@ export default function CvUploadPanel({ savedAnalysis }: { savedAnalysis: unknow
               type="button"
             >
               {analysisLoading
-                ? (analysis ? "Menganalisis ulang..." : "Menganalisis...")
-                : (analysis ? "Analisis ulang" : "Analisis kecocokan")}
+                ? analysis
+                  ? "Menganalisis ulang..."
+                  : "Menganalisis..."
+                : analysis
+                  ? "Analisis ulang"
+                  : "Analisis kecocokan"}
             </button>
           </div>
           <p className="cv-privacy-note">
-            Analisis memakai Gemini API free tier untuk mengambil kata kunci dan menilai kecocokan. Teks CV dikirim ke Google setelah bagian identitas,
-            kontak, tautan, dan data sensitif umum disamarkan. Google dapat menggunakan data free tier untuk meningkatkan produk.
+            Analisis memakai Gemini API free tier untuk mengambil kata kunci dan
+            menilai kecocokan. Teks CV dikirim ke Google setelah bagian
+            identitas, kontak, tautan, dan data sensitif umum disamarkan. Google
+            dapat menggunakan data free tier untuk meningkatkan produk.
           </p>
           {analysisLoading && (
             <div aria-live="polite" className="cv-analysis-loading">
               <span className="spinner" />
-              <p>AI sedang mengambil kata kunci CV dan memilih lowongan yang paling cocok...</p>
+              <p>
+                AI sedang mengambil kata kunci CV dan memilih lowongan yang
+                paling cocok...
+              </p>
             </div>
           )}
           {analysis && (
             <div aria-live="polite" className="cv-analysis-results">
               <p className="cv-score-disclaimer">
-                Hasil terakhir disimpan {new Intl.DateTimeFormat("id-ID", {
+                Hasil terakhir disimpan{" "}
+                {new Intl.DateTimeFormat("id-ID", {
                   dateStyle: "medium",
                   timeStyle: "short",
-                }).format(new Date(analysis.analyzedAt))}. Hasil tetap tersedia sampai Anda menjalankan analisis ulang.
+                }).format(new Date(analysis.analyzedAt))}
+                . Hasil tetap tersedia sampai Anda menjalankan analisis ulang.
               </p>
               {analysis.method === "local" && (
                 <p className="cv-score-disclaimer">
-                  Hasil ini memakai metode analisis sebelumnya. Pilih Analisis ulang untuk mendapatkan kata kunci dan pencocokan dari AI.
+                  Hasil ini memakai metode analisis sebelumnya. Pilih Analisis
+                  ulang untuk mendapatkan kata kunci dan pencocokan dari AI.
                 </p>
               )}
               <div className="cv-keywords">
                 <strong>Kata kunci CV</strong>
-                <div>{analysis.keywords.map((keyword) => <span key={keyword}>{keyword}</span>)}</div>
+                <div>
+                  {analysis.keywords.map((keyword) => (
+                    <span key={keyword}>{keyword}</span>
+                  ))}
+                </div>
               </div>
-              {analysis.matches.length ? analysis.matches.map((match) => (
-                <article className="cv-match-card" key={match.job.job_url}>
-                  <div className="cv-match-card-heading">
-                    <div>
-                      <p className="eyebrow">{analysis.method === "ai" ? "SKOR KECOCOKAN AI" : "SKOR KATA KUNCI"}</p>
-                      <h3>{match.job.title}</h3>
-                      <p className="cv-match-meta">
-                        {match.job.company || "Perusahaan tidak dicantumkan"}
-                        {match.job.location ? ` · ${match.job.location}` : ""}
-                      </p>
+              {analysis.matches.length ? (
+                analysis.matches.map((match) => (
+                  <article className="cv-match-card" key={match.job.job_url}>
+                    <div className="cv-match-card-heading">
+                      <div>
+                        <p className="eyebrow">
+                          {analysis.method === "ai"
+                            ? "SKOR KECOCOKAN AI"
+                            : "SKOR KATA KUNCI"}
+                        </p>
+                        <h3>{match.job.title}</h3>
+                        <p className="cv-match-meta">
+                          {match.job.company || "Perusahaan tidak dicantumkan"}
+                          {match.job.location ? ` · ${match.job.location}` : ""}
+                        </p>
+                        <span className="cv-match-source">
+                          Sumber: {jobSourceLabel(match.job)}
+                        </span>
+                      </div>
+                      <strong
+                        aria-label={`Skor kecocokan ${match.score} persen`}
+                        className="cv-match-score"
+                      >
+                        {match.score}%
+                      </strong>
                     </div>
-                    <strong aria-label={`Skor kecocokan ${match.score} persen`} className="cv-match-score">
-                      {match.score}%
-                    </strong>
-                  </div>
-                  {match.job.salary && <p className="cv-match-salary">{match.job.salary}</p>}
-                  <p className="cv-match-explanation">{match.explanation}</p>
-                  {match.matchedKeywords.length > 0 && (
-                    <div className="cv-match-list">
-                      <strong>Kata kunci cocok</strong>
-                      <p>{match.matchedKeywords.join(", ")}</p>
-                    </div>
-                  )}
-                  {match.matchingPoints.length > 0 && (
-                    <div className="cv-match-list">
-                      <strong>Kecocokan yang ditemukan</strong>
-                      <ul>{match.matchingPoints.map((point) => <li key={point}>{point}</li>)}</ul>
-                    </div>
-                  )}
-                  {match.missingPoints.length > 0 && (
-                    <div className="cv-match-list cv-match-gaps">
-                      <strong>Persyaratan yang belum terlihat di CV</strong>
-                      <ul>{match.missingPoints.map((point) => <li key={point}>{point}</li>)}</ul>
-                    </div>
-                  )}
-                  <a
-                    className="button button-secondary cv-match-link"
-                    href={`/job?url=${encodeURIComponent(match.job.job_url)}`}
-                  >
-                    Lihat detail lowongan
-                  </a>
-                </article>
-              )) : (
-                <p className="cv-empty-state">AI belum menemukan lowongan yang cukup cocok dari data tujuh hari terakhir.</p>
+                    {match.job.salary && (
+                      <p className="cv-match-salary">{match.job.salary}</p>
+                    )}
+                    <p className="cv-match-explanation">{match.explanation}</p>
+                    {match.matchedKeywords.length > 0 && (
+                      <div className="cv-match-list">
+                        <strong>Kata kunci cocok</strong>
+                        <p>{match.matchedKeywords.join(", ")}</p>
+                      </div>
+                    )}
+                    {match.matchingPoints.length > 0 && (
+                      <div className="cv-match-list">
+                        <strong>Kecocokan yang ditemukan</strong>
+                        <ul>
+                          {match.matchingPoints.map((point) => (
+                            <li key={point}>{point}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {match.missingPoints.length > 0 && (
+                      <div className="cv-match-list cv-match-gaps">
+                        <strong>Persyaratan yang belum terlihat di CV</strong>
+                        <ul>
+                          {match.missingPoints.map((point) => (
+                            <li key={point}>{point}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    <a
+                      className="button button-secondary cv-match-link"
+                      href={`/job?url=${encodeURIComponent(match.job.job_url)}`}
+                    >
+                      Lihat detail lowongan
+                    </a>
+                  </article>
+                ))
+              ) : (
+                <p className="cv-empty-state">
+                  AI belum menemukan lowongan yang cukup cocok dari data tujuh
+                  hari terakhir.
+                </p>
               )}
               <p className="cv-score-disclaimer">
                 {analysis.method === "ai"
                   ? "Persentase adalah perkiraan AI, bukan jaminan diterima."
                   : "Persentase merupakan perkiraan kata kunci, bukan jaminan diterima."}{" "}
-                Maksimal 20 lowongan ditampilkan; verifikasi persyaratan pada lowongan asli.
+                Maksimal 30 lowongan ditampilkan; verifikasi persyaratan pada
+                lowongan asli.
               </p>
             </div>
           )}
@@ -476,7 +617,11 @@ export default function CvUploadPanel({ savedAnalysis }: { savedAnalysis: unknow
             aria-modal="true"
             className={`result-modal result-modal-${dialog.variant}`}
             ref={dialogRef}
-            role={dialog.variant === "error" || dialog.variant === "confirm" ? "alertdialog" : "dialog"}
+            role={
+              dialog.variant === "error" || dialog.variant === "confirm"
+                ? "alertdialog"
+                : "dialog"
+            }
             tabIndex={-1}
           >
             <button
@@ -488,7 +633,11 @@ export default function CvUploadPanel({ savedAnalysis }: { savedAnalysis: unknow
               ×
             </button>
             <span aria-hidden="true" className="result-modal-icon">
-              {dialog.variant === "success" ? "✓" : dialog.variant === "confirm" ? "?" : "!"}
+              {dialog.variant === "success"
+                ? "✓"
+                : dialog.variant === "confirm"
+                  ? "?"
+                  : "!"}
             </span>
             <h2 id="cv-modal-title">{dialog.title}</h2>
             <p id="cv-modal-description">{dialog.message}</p>
@@ -505,7 +654,11 @@ export default function CvUploadPanel({ savedAnalysis }: { savedAnalysis: unknow
               <button
                 autoFocus
                 className={`button ${dialog.variant === "error" || dialog.variant === "confirm" ? "button-danger" : "button-primary"}`}
-                onClick={dialog.variant === "confirm" ? confirmDialogAction : () => setDialog(null)}
+                onClick={
+                  dialog.variant === "confirm"
+                    ? confirmDialogAction
+                    : () => setDialog(null)
+                }
                 type="button"
               >
                 {dialog.variant === "confirm" ? "Hapus CV" : "Mengerti"}

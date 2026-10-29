@@ -1,4 +1,6 @@
 import AdminScrapePanel from "@/components/AdminScrapePanel";
+
+export const instant = false;
 import { getSavedSources } from "@/lib/sources";
 import { requireCurrentUser } from "@/lib/auth";
 
@@ -11,7 +13,7 @@ export default async function SourcesPage() {
         <div>
           <p className="eyebrow">PENGELOLAAN SUMBER</p>
           <h1>Kelola tautan</h1>
-          <p>Tambahkan URL pencarian, pantau pembaruan otomatis, ganti URL, atau hapus sumber tersimpan.</p>
+          <p>Kelola URL JobStreet dan Glints, pantau status scrape otomatis, ganti URL, atau hapus sumber.</p>
         </div>
       </header>
       <AdminScrapePanel initialSources={sources} />

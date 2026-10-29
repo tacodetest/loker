@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getJobsPage } from "@/lib/jobs";
+import { getJobsPage, type JobsSite } from "@/lib/jobs";
 import { getRequestUser } from "@/lib/auth";
 
 const noStore = { headers: { "Cache-Control": "no-store, max-age=0" } };
@@ -18,9 +18,11 @@ export async function GET(req: Request) {
   const period = rawPeriod === "today" || (rawPeriod === null && search.get("days") === "1")
     ? "today"
     : "all";
+  const rawSite = search.get("site");
+  const site: JobsSite = rawSite === "jobstreet" || rawSite === "glints" ? rawSite : "all";
 
   try {
-    const result = await getJobsPage({ search: query, page, period }, user.id);
+    const result = await getJobsPage({ search: query, page, period, site }, user.id);
     return NextResponse.json(result, noStore);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Gagal memuat lowongan.";
