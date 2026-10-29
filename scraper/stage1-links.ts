@@ -83,7 +83,6 @@ export async function markStaleListingHints(link: SavedLink, candidates: JobLink
   if (!oldLinks.length) return;
   const { error } = await scraperDb().from("jobs").update({
     detail_status: "expired",
-    posted_at_source: "exact",
   }).eq("owner_id", link.owner_id).in("job_link", oldLinks);
   if (error) throw new Error(`Gagal melewati lowongan lama: ${error.message}`);
 }

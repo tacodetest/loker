@@ -67,7 +67,7 @@ async function getRecentlyScrapedJobs(ownerId: AppUserId): Promise<JobForMatchin
 
   for (let jobOffset = 0; ; jobOffset += QUERY_BATCH_SIZE) {
     const { data, error } = await db().from("jobs")
-      .select("job_url,title,company,location,salary,posted_time,posted_at,posted_at_source,source_url,site,scraped_at,first_seen_at,description,job_description,employment_type")
+      .select("job_url,title,company,location,salary,posted_time,source_url,site,scraped_at,first_seen_at,description,job_description,employment_type")
       .eq("owner_id", ownerId)
       .eq("detail_status", "ok")
       .range(jobOffset, jobOffset + QUERY_BATCH_SIZE - 1)
@@ -77,7 +77,8 @@ async function getRecentlyScrapedJobs(ownerId: AppUserId): Promise<JobForMatchin
     for (const row of data) {
       if (!jobUrls.includes(String(row.job_url))) continue;
       const firstSeenAt = typeof row.first_seen_at === "string" ? row.first_seen_at : new Date(0).toISOString();
-      const postedAt = typeof row.posted_at === "string" ? row.posted_at : null;
+      const postedTime = typeof row.posted_time === "string" ? row.posted_time : null;
+      const postedAt = postedTime && !Number.isNaN(Date.parse(postedTime)) ? postedTime : null;
       const scrapedAt = typeof row.scraped_at === "string" ? row.scraped_at : firstSeenAt;
       jobs.push({
         job_url: String(row.job_url),
@@ -85,10 +86,9 @@ async function getRecentlyScrapedJobs(ownerId: AppUserId): Promise<JobForMatchin
         company: typeof row.company === "string" ? row.company : null,
         location: typeof row.location === "string" ? row.location : null,
         salary: typeof row.salary === "string" ? row.salary : null,
-        posted_time: postedAt ?? (typeof row.posted_time === "string" ? row.posted_time : null),
+        posted_time: postedTime,
         posted_at: postedAt,
-        posted_at_source: row.posted_at_source === "exact" || row.posted_at_source === "estimated"
-          ? row.posted_at_source : "unknown",
+        posted_at_source: "unknown",
         source_url: typeof row.source_url === "string" ? row.source_url : null,
         site: typeof row.site === "string" ? row.site : null,
         scraped_at: scrapedAt,
@@ -181,7 +181,7 @@ export async function getJobDetail(jobUrl: string, ownerId: AppUserId) {
   const linkedUrls = await getLinkedJobUrls(ownerId);
   if (!linkedUrls.includes(jobUrl)) return null;
   const { data, error } = await db().from("jobs")
-    .select("job_url,title,company,location,salary,posted_time,posted_at,posted_at_source,source_url,site,scraped_at,first_seen_at,description,job_description,employment_type")
+    .select("job_url,title,company,location,salary,posted_time,source_url,site,scraped_at,first_seen_at,description,job_description,employment_type")
     .eq("owner_id", ownerId)
     .eq("job_url", jobUrl)
     .eq("detail_status", "ok")
@@ -189,17 +189,17 @@ export async function getJobDetail(jobUrl: string, ownerId: AppUserId) {
   if (error) throw new Error(`Gagal memuat detail lowongan: ${error.message}`);
   if (!data) return null;
 
-  const postedAt = data.posted_at;
+  const postedTime = data.posted_time;
+  const postedAt = postedTime && !Number.isNaN(Date.parse(postedTime)) ? postedTime : null;
   const job = {
     job_url: data.job_url,
     title: data.title,
     company: data.company,
     location: data.location,
     salary: data.salary,
-    posted_time: postedAt ?? data.posted_time,
+    posted_time: postedTime,
     posted_at: postedAt,
-    posted_at_source: data.posted_at_source === "exact" || data.posted_at_source === "estimated"
-      ? data.posted_at_source : "unknown",
+    posted_at_source: "unknown",
     source_url: data.source_url,
     site: data.site,
     scraped_at: data.scraped_at ?? data.first_seen_at,

@@ -150,8 +150,6 @@ async function persistDetails(job: PendingJob, details: JobDetails) {
     description: details.job_description,
     job_description: details.job_description,
     posted_time: details.posted_at,
-    posted_at: details.posted_at,
-    posted_at_source: details.posted_at_source,
     detail_status: "ok",
     detail_attempts: job.detail_attempts,
     last_error: null,
