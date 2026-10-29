@@ -481,8 +481,8 @@ export default function CvUploadPanel({
             <div>
               <h2 id="cv-match-title">Kecocokan dengan lowongan</h2>
               <p>
-                Gemini menganalisis kecocokan CV dengan semua lowongan aktif dari
-                database dan menampilkan maksimal 30 yang paling relevan.
+                Sistem memilih maksimal 20 lowongan aktif yang paling relevan
+                untuk dianalisis Gemini. Hasil tetap dinilai oleh AI.
               </p>
             </div>
             <button
