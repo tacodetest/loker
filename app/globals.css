@@ -201,6 +201,7 @@ a { color: inherit; }
 .range-select { display: flex; align-items: center; gap: 8px; color: #718097; font-size: .76rem; white-space: nowrap; }
 .range-select select { min-height: 38px; padding: 0 28px 0 10px; border: 1px solid #e1e6ee; border-radius: 8px; background: white; color: #394960; }
 .results-count { max-width: 100%; padding: 6px 10px; border: 1px solid var(--line); border-radius: 20px; background: #fafbfd; color: #728096; font-size: .72rem; font-weight: 700; text-align: center; white-space: normal; }
+.jobs-explanation { margin: 0 0 14px; padding: 11px 14px; border: 1px solid #dce6f6; border-radius: 10px; background: #f7f9fd; color: #63728a; font-size: .76rem; line-height: 1.55; }
 .filters-submit { min-height: 40px; }
 .job-groups { display: grid; gap: 23px; }
 .job-group-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 1px 10px; }

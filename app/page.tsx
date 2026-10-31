@@ -37,14 +37,14 @@ async function HomeContent() {
         <div>
           <p className="eyebrow">PENCARIAN KERJA</p>
           <h1>Ringkasan</h1>
-          <p>Pantau lowongan terbaru dari semua sumber pencarianmu.</p>
+          <p>Angka lowongan menghitung URL unik, bukan jumlah hubungan dengan tautan pencarian.</p>
         </div>
       </header>
 
       <section aria-label="Statistik lowongan" className="stats-grid">
         <article className="stat-card">
           <span aria-hidden="true" className="stat-icon stat-blue">▤</span>
-          <div><span>Lowongan 7 hari terakhir</span><strong>{stats.totalJobs}</strong><small>Postingan yang masih baru</small></div>
+          <div><span>Lowongan 7 hari terakhir</span><strong>{stats.totalJobs}</strong><small>URL unik dengan tanggal posting diketahui</small></div>
         </article>
         <article className="stat-card">
           <span aria-hidden="true" className="stat-icon stat-green">◷</span>
@@ -56,13 +56,13 @@ async function HomeContent() {
         </article>
         <article className="stat-card">
           <span aria-hidden="true" className="stat-icon stat-purple">⌕</span>
-          <div><span>Lowongan segar diambil 7 hari</span><strong>{stats.recentJobs}</strong><small>Diperbarui dan diposting 7 hari terakhir</small></div>
+          <div><span>Lowongan segar diambil 7 hari</span><strong>{stats.recentJobs}</strong><small>Duplikat dari tautan lain dihitung satu kali</small></div>
         </article>
       </section>
 
       <section aria-labelledby="latest-heading" className="content-card overview-card">
         <div className="section-heading">
-          <div><h2 id="latest-heading">Lowongan terbaru</h2><p>Hasil gabungan dari seluruh tautan yang tersimpan.</p><small>{stats.pendingJobs} lowongan masih menunggu pengambilan detail.</small></div>
+          <div><h2 id="latest-heading">Lowongan terbaru</h2><p>Hasil gabungan dari seluruh tautan yang tersimpan, dihitung satu kali per lowongan.</p><small>{stats.pendingJobs} lowongan masih menunggu pengambilan detail.</small></div>
           <Link className="button button-secondary" href="/jobs">Lihat semua</Link>
         </div>
         {recentJobs.length === 0 ? (

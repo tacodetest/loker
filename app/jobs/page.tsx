@@ -78,7 +78,7 @@ async function JobsPageContent({ searchParams }: { searchParams: SearchParams })
         <div>
           <p className="eyebrow">PENCARIAN KERJA</p>
           <h1>Semua lowongan</h1>
-          <p>Lowongan Glints yang tersimpan di Supabase.</p>
+          <p>Lowongan Glints unik dengan tanggal posting dalam 7 hari terakhir.</p>
         </div>
       </header>
 
@@ -100,6 +100,11 @@ async function JobsPageContent({ searchParams }: { searchParams: SearchParams })
           Menampilkan {firstResult}–{lastResult} dari {totalJobs} lowongan
         </span>
       </form>
+      <p className="jobs-explanation">
+        Lowongan yang sama dari beberapa tautan pencarian hanya ditampilkan satu kali. Hanya lowongan
+        dengan detail berhasil dan tanggal posting yang diketahui dalam 7 hari terakhir yang ditampilkan;
+        tanggal kosong atau lebih lama tidak dihitung.
+      </p>
 
       {jobs.length === 0 ? (
         <section className="empty-state">

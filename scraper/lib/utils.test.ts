@@ -16,6 +16,18 @@ import {
   getRateLimitRetryAt,
   parseRetryAfter,
 } from "./rate-limit";
+import { isPostedWithinWindow } from "../../lib/job-freshness";
+
+test("daftar hanya menerima tanggal posting yang diketahui dan berada dalam tujuh hari", () => {
+  const now = new Date("2026-10-31T12:00:00.000Z");
+  const cutoff = new Date(now.getTime() - 7 * 86_400_000);
+  assert.equal(isPostedWithinWindow("2026-10-31T11:00:00.000Z", cutoff, now), true);
+  assert.equal(isPostedWithinWindow(cutoff.toISOString(), cutoff, now), true);
+  assert.equal(isPostedWithinWindow("2026-10-24T11:59:59.999Z", cutoff, now), false);
+  assert.equal(isPostedWithinWindow("2026-10-31T12:00:01.000Z", cutoff, now), false);
+  assert.equal(isPostedWithinWindow(null, cutoff, now), false);
+  assert.equal(isPostedWithinWindow("tanggal tidak valid", cutoff, now), false);
+});
 
 test("source detection accepts Glints and rejects other or lookalike domains", () => {
   assert.equal(sourceFromUrl("https://glints.com/id/opportunities"), "glints");
