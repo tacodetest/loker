@@ -4,7 +4,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Altaf Resume Job",
-  description: "Lowongan terbaru dari JobStreet dan Glints",
+  description: "Lowongan terbaru dari Glints",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

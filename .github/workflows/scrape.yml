@@ -1,4 +1,4 @@
-name: Scrape lowongan kerja
+name: Scrape lowongan Glints
 
 on:
   schedule:
@@ -10,53 +10,22 @@ on:
         required: false
         type: string
       source_url:
-        description: URL pencarian yang akan diproses segera (opsional)
+        description: URL pencarian Glints yang akan diproses segera (opsional)
         required: false
         type: string
-      source:
-        description: Sumber yang akan diproses jika URL tidak diberikan
-        required: true
-        type: choice
-        options:
-          - all
-          - glints
-          - jobstreet
-        default: all
 
 permissions:
   contents: read
 
-jobs:
-  prep:
-    runs-on: ubuntu-latest
-    outputs:
-      run_glints: ${{ steps.sources.outputs.run_glints }}
-      run_jobstreet: ${{ steps.sources.outputs.run_jobstreet }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - name: Tentukan sumber scrape
-        id: sources
-        run: node --import tsx scraper/resolve-sources.ts
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          INPUT_SOURCE: ${{ inputs.source }}
-          INPUT_SOURCE_URL: ${{ inputs.source_url }}
+concurrency:
+  group: scrape-glints
+  cancel-in-progress: false
 
+jobs:
   scrape-glints:
-    needs: prep
-    if: needs.prep.outputs.run_glints == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    concurrency:
-      group: scrape-glints
-      cancel-in-progress: false
+    timeout-minutes: 25
     env:
-      SCRAPE_SOURCE: glints
       SCRAPE_OWNER_ID: ${{ inputs.owner_id }}
       SCRAPE_SOURCE_URL: ${{ inputs.source_url }}
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -86,46 +55,5 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
       - name: Verifikasi data Glints
-        if: always()
-        run: npm run verify:scrape
-
-  scrape-jobstreet:
-    needs: prep
-    if: vars.SCRAPER_RUNNER != '' && needs.prep.outputs.run_jobstreet == 'true'
-    runs-on: ${{ vars.SCRAPER_RUNNER }}
-    timeout-minutes: 45
-    concurrency:
-      group: scrape-jobstreet
-      cancel-in-progress: false
-    env:
-      SCRAPE_SOURCE: jobstreet
-      SCRAPE_OWNER_ID: ${{ inputs.owner_id }}
-      SCRAPE_SOURCE_URL: ${{ inputs.source_url }}
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - name: Pasang Chromium Playwright di Windows
-        if: runner.os == 'Windows'
-        run: npx playwright install chromium
-      - name: Pasang Chromium Playwright di Linux
-        if: runner.os == 'Linux'
-        run: npx playwright install --with-deps chromium
-      - name: Ambil lowongan JobStreet
-        run: npm run scrape
-      - name: Unggah HTML debug JobStreet
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: html-debug-jobstreet-${{ github.run_id }}-${{ github.run_attempt }}
-          path: debug/
-          if-no-files-found: ignore
-          retention-days: 7
-      - name: Verifikasi data JobStreet
         if: always()
         run: npm run verify:scrape

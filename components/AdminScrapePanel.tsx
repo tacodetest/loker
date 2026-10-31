@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { isSourceEnabled } from "@/scraper/lib/enabled-sources";
 
 type SavedSource = {
   id: string;
@@ -84,7 +85,12 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
   }
 
   useEffect(() => {
-    const pendingIds = Object.keys(pendingRefreshes);
+    const pendingIds = Object.keys(pendingRefreshes).filter(
+      (id) => {
+        const source = sources.find((item) => item.id === id);
+        return source ? isSourceEnabled(source.source) : false;
+      },
+    );
     if (!pendingIds.length) return;
 
     let checking = false;
@@ -96,7 +102,7 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
         if (!refreshedSources) return;
         const completed = pendingIds.filter((id) => {
           const source = refreshedSources.find((item) => item.id === id);
-          return source && source.last_scraped_at !== pendingRefreshes[id];
+          return source?.source === "glints" && source.last_scraped_at !== pendingRefreshes[id];
         });
         if (!completed.length) return;
 
@@ -124,12 +130,17 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
     }, 12_000);
 
     return () => window.clearInterval(interval);
-  }, [pendingRefreshes]);
+  }, [pendingRefreshes, sources]);
 
   async function refreshSource(source: SavedSource) {
     setError(null);
     setNotice(null);
     setNoticeIsNeutral(false);
+    if (!isSourceEnabled(source.source)) {
+      setNotice("Saat ini hanya Glints yang didukung. Tautan JobStreet tetap tersimpan dan tidak diproses.");
+      setNoticeIsNeutral(true);
+      return;
+    }
     try {
       const result = await readResponse(await fetch("/api/sources", {
         method: "PATCH",
@@ -146,7 +157,7 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
         ...current,
         [source.id]: source.last_scraped_at,
       }));
-      setNotice(`Permintaan pembaruan ${source.source === "jobstreet" ? "JobStreet" : "Glints"} diterima. Proses berjalan di latar belakang dan halaman ini boleh ditinggalkan.`);
+      setNotice("Permintaan pembaruan Glints diterima. Proses berjalan di latar belakang dan halaman ini boleh ditinggalkan.");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Gagal memulai scrape manual.");
     }
@@ -259,21 +270,21 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
           <div className="source-summary-copy"><span>Lowongan terhubung</span><strong>{linkedJobCount}</strong><small>Data yang tersimpan di Supabase</small></div>
         </article>
         <article className="source-summary-card">
-          <div className="source-summary-copy"><span>Tautan tersimpan</span><strong>{sources.length}</strong><small>Sumber JobStreet dan Glints</small></div>
+          <div className="source-summary-copy"><span>Tautan tersimpan</span><strong>{sources.length}</strong><small>Scraper aktif untuk Glints</small></div>
         </article>
       </section>
 
       <section className="content-card">
         <div className="section-heading">
-          <div><h2>Tambah tautan pencarian</h2><p>Masukkan URL pencarian JobStreet atau Glints. Scraping berjalan otomatis melalui GitHub Actions dan dapat dimulai manual dari tautan tersimpan.</p></div>
+          <div><h2>Tambah tautan pencarian</h2><p>Masukkan URL pencarian Glints. Scraping berjalan otomatis melalui GitHub Actions dan dapat dimulai manual dari tautan tersimpan.</p></div>
         </div>
         <form className="source-add-form" onSubmit={addSource}>
           <label className="filter-search">
-            <span className="sr-only">URL pencarian JobStreet atau Glints</span>
+            <span className="sr-only">URL pencarian Glints</span>
             <input
               autoComplete="url"
               onChange={(event) => setSourceUrl(event.target.value)}
-              placeholder="https://id.jobstreet.com/id/Warehouse-jobs/..."
+              placeholder="https://glints.com/id/opportunities/jobs/explore?keyword=Warehouse"
               required
               type="url"
               value={sourceUrl}
@@ -295,10 +306,14 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
               <li className="saved-link-item" key={source.id}>
                 <div className="saved-link-main">
                   <strong className="site-tag">{source.source === "jobstreet" ? "JobStreet" : "Glints"}</strong>
+                  {!isSourceEnabled(source.source) && <span className="source-disabled-label">Dinonaktifkan</span>}
                   <a href={source.url} rel="noreferrer" target="_blank">{source.url}</a>
                   <span>{source.last_status ? `Status: ${statusLabel(source.last_status)}` : "Status: menunggu scrape otomatis"}</span>
                   {source.last_status === "diblokir" && (
                     <span>Scrape dihentikan karena akses diblokir atau captcha; data lama tetap dipertahankan.</span>
+                  )}
+                  {!isSourceEnabled(source.source) && (
+                    <span>Tautan tersimpan, tetapi pembaruan JobStreet sedang dinonaktifkan.</span>
                   )}
                   {pendingRefreshes[source.id] !== undefined && (
                     <strong aria-live="polite">Pembaruan sedang berjalan di latar belakang. Anda boleh meninggalkan halaman ini.</strong>
@@ -315,7 +330,7 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
                 <div className="saved-link-actions">
                   <button
                     className="button button-primary"
-                    disabled={loading || pendingRefreshes[source.id] !== undefined}
+                    disabled={loading || !isSourceEnabled(source.source) || pendingRefreshes[source.id] !== undefined}
                     onClick={() => void refreshSource(source)}
                     type="button"
                   >
@@ -330,7 +345,7 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
                       <span className="sr-only">URL pencarian baru</span>
                       <input
                         onChange={(event) => setReplacementUrls((current) => ({ ...current, [source.url]: event.target.value }))}
-                        placeholder="Masukkan URL pencarian baru"
+                        placeholder="Masukkan URL pencarian Glints yang baru"
                         type="url"
                         value={replacementUrls[source.url] ?? ""}
                       />

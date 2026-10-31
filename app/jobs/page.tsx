@@ -84,7 +84,7 @@ async function JobsPageContent({ searchParams }: { searchParams: SearchParams })
         <div>
           <p className="eyebrow">PENCARIAN KERJA</p>
           <h1>Semua lowongan</h1>
-          <p>Lowongan JobStreet dan Glints yang tersimpan di Supabase.</p>
+          <p>Lowongan Glints yang tersimpan di Supabase.</p>
         </div>
       </header>
 

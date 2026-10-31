@@ -201,7 +201,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         <aside className="sidebar-tip">
           <span aria-hidden="true">✦</span>
           <strong>Tips pencarian</strong>
-          <p>Cari lowongan berdasarkan judul pekerjaan dan gunakan tautan JobStreet dengan filter yang sesuai.</p>
+          <p>Cari lowongan berdasarkan judul pekerjaan dan gunakan tautan pencarian Glints yang sesuai.</p>
         </aside>
 
         <div className="sidebar-account">
@@ -239,7 +239,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           {children}
         </SessionStateProvider>
         <footer className="page-footer">
-          Lowongan dari JobStreet · Penyimpanan terkelola pribadi
+          Lowongan dari Glints · Penyimpanan terkelola pribadi
         </footer>
       </div>
       {logoutConfirmOpen && (

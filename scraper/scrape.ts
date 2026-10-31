@@ -1,15 +1,14 @@
 import { CONCURRENCY } from "./config";
-import { getSavedLinks, setLinkStatus } from "./lib/supabase";
+import { cleanupExpiredJobs, getSavedLinks, setLinkStatus } from "./lib/supabase";
 import type { LinkStatus, SavedLink } from "./lib/types";
 import {
   createRateLimitMessage,
   formatCooldownMessage,
-  getJobStreetCooldownUntil,
+  getSourceCooldownUntil,
   RateLimitedError,
 } from "./lib/rate-limit";
 import { scrapePendingDetails } from "./stage2-details";
 import { collectJobLinks } from "./stage1-links";
-import { parseScrapeSource, filterLinksBySource } from "./lib/source-filter";
 
 type LinkSummary = {
   berhasil: number;
@@ -42,9 +41,9 @@ function errorFor(summary: LinkSummary, stageError: string | null) {
 async function run() {
   const ownerId = process.env.SCRAPE_OWNER_ID || undefined;
   const sourceUrl = process.env.SCRAPE_SOURCE_URL || undefined;
-  const selection = parseScrapeSource(process.env.SCRAPE_SOURCE);
-  const source = selection === "all" ? undefined : selection;
-  const links = filterLinksBySource(await getSavedLinks(ownerId, sourceUrl, source), selection);
+  const cleanedCount = await cleanupExpiredJobs();
+  console.info(`[scraper] Pembersihan Glints selesai: ${cleanedCount} lowongan lama dibersihkan.`);
+  const links = await getSavedLinks(ownerId, sourceUrl);
   if (!links.length) {
     console.info("[scraper] Tidak ada tautan aktif untuk diperbarui.");
     return;
@@ -53,9 +52,7 @@ async function run() {
   const now = new Date();
   const eligibleLinks: SavedLink[] = [];
   for (const link of links) {
-    const cooldownUntil = link.source === "jobstreet"
-      ? getJobStreetCooldownUntil(link.last_status, link.last_scraped_at, link.last_error, now)
-      : null;
+    const cooldownUntil = getSourceCooldownUntil(link.source, link.last_status, link.last_scraped_at, link.last_error, now);
     if (cooldownUntil) {
       console.info(`[scraper] Tautan dilewati selama cooldown: ${link.url}. ${formatCooldownMessage(cooldownUntil)}`);
       continue;
@@ -70,15 +67,15 @@ async function run() {
   const stageErrors = new Map<string, string>();
   const stageSucceeded: SavedLink[] = [];
   const limitedLinks = new Map<string, string>();
-  let jobstreetRateLimit: RateLimitedError | null = null;
+  let sourceRateLimit: RateLimitedError | null = null;
   for (let index = 0; index < eligibleLinks.length; index += CONCURRENCY) {
     const link = eligibleLinks[index];
-    if (link.source === "jobstreet" && jobstreetRateLimit) {
+    if (sourceRateLimit) {
       limitedLinks.set(
         link.id,
-        createRateLimitMessage(jobstreetRateLimit.status, jobstreetRateLimit.retryAt),
+        createRateLimitMessage(sourceRateLimit.source, sourceRateLimit.status, sourceRateLimit.retryAt),
       );
-      console.info(`[scraper] JobStreet dilewati setelah pembatasan pada run ini: ${link.url}.`);
+      console.info(`[scraper] Sumber ${link.source} dilewati setelah pembatasan pada run ini: ${link.url}.`);
       continue;
     }
     try {
@@ -87,11 +84,11 @@ async function run() {
       console.info(`[scraper] Tahap 1 selesai untuk ${link.url}: ${count} tautan lowongan.`);
     } catch (error) {
       if (error instanceof RateLimitedError) {
-        jobstreetRateLimit = error;
-        const message = createRateLimitMessage(error.status, error.retryAt);
+        sourceRateLimit = error;
+        const message = createRateLimitMessage(error.source, error.status, error.retryAt);
         limitedLinks.set(link.id, message);
         console.warn(
-          `[scraper] Tahap 1 JobStreet dihentikan setelah ${error.collectedCount} tautan terkumpul. ${message}`,
+          `[scraper] Tahap 1 ${error.source} dihentikan di ${link.url} setelah ${error.collectedCount} tautan terkumpul. ${message}`,
         );
         continue;
       }
@@ -103,7 +100,7 @@ async function run() {
 
   let detailSummaries: Awaited<ReturnType<typeof scrapePendingDetails>>;
   try {
-    const detailLinks = stageSucceeded.filter((link) => !(link.source === "jobstreet" && jobstreetRateLimit));
+    const detailLinks = sourceRateLimit ? [] : stageSucceeded;
     detailSummaries = await scrapePendingDetails(detailLinks);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -117,9 +114,8 @@ async function run() {
     }]));
   }
   const detailRateLimit = [...detailSummaries.values()].find((summary) => summary.dibatasi);
-  if (!jobstreetRateLimit && detailRateLimit) {
-    for (const link of stageSucceeded) {
-      if (link.source !== "jobstreet") continue;
+  if (!sourceRateLimit && detailRateLimit) {
+    for (const link of eligibleLinks) {
       const summary = detailSummaries.get(link.id);
       if (summary) {
         summary.dibatasi = true;
@@ -128,11 +124,11 @@ async function run() {
       }
     }
   }
-  for (const link of stageSucceeded) {
-    if (link.source === "jobstreet" && jobstreetRateLimit) {
+  for (const link of eligibleLinks) {
+    if (sourceRateLimit) {
       limitedLinks.set(
         link.id,
-        createRateLimitMessage(jobstreetRateLimit.status, jobstreetRateLimit.retryAt),
+        createRateLimitMessage(sourceRateLimit.source, sourceRateLimit.status, sourceRateLimit.retryAt),
       );
     }
   }

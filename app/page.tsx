@@ -52,7 +52,7 @@ async function HomeContent() {
         </article>
         <article className="stat-card">
           <span aria-hidden="true" className="stat-icon stat-orange">↗</span>
-          <div><span>Sumber pencarian</span><strong>{stats.sources}</strong><small>JobStreet dan Glints</small></div>
+          <div><span>Sumber pencarian</span><strong>{stats.sources}</strong><small>Glints aktif</small></div>
         </article>
         <article className="stat-card">
           <span aria-hidden="true" className="stat-icon stat-purple">⌕</span>
@@ -97,7 +97,7 @@ async function HomeContent() {
       <section className="content-card quick-source">
         <div>
           <span aria-hidden="true" className="quick-icon">↗</span>
-          <div><h2>Tambah sumber pencarian</h2><p>Tambahkan URL JobStreet atau Glints.</p></div>
+          <div><h2>Tambah sumber pencarian</h2><p>Tambahkan URL pencarian Glints.</p></div>
         </div>
         <Link className="button button-primary" href="/sources">Kelola tautan</Link>
       </section>

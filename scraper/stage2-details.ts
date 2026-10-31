@@ -27,7 +27,12 @@ import {
   markJobAttempt,
   updateJobDetails,
 } from "./lib/supabase";
-import { createRateLimitMessage, parseRetryAfter, RateLimitedError } from "./lib/rate-limit";
+import {
+  createRateLimitMessage,
+  isRateLimitStatus,
+  parseRetryAfter,
+  RateLimitedError,
+} from "./lib/rate-limit";
 import * as glints from "./sources/glints";
 import * as jobstreet from "./sources/jobstreet";
 
@@ -60,13 +65,13 @@ export async function scrapePendingDetails(links: SavedLink[]): Promise<Map<stri
       timezoneId: "Asia/Jakarta",
       viewport: { width: 1440, height: 900 },
     });
-    let jobstreetRateLimited: RateLimitedError | null = null;
+    let sourceRateLimited: RateLimitedError | null = null;
     for (const [jobIndex, job] of jobs.entries()) {
-      if (job.source === "jobstreet" && jobstreetRateLimited) {
+      if (sourceRateLimited) {
         setLinkLimited(
           summaries.get(job.link_id),
-          createRateLimitMessage(jobstreetRateLimited.status, jobstreetRateLimited.retryAt),
-          jobstreetRateLimited.retryAt,
+          createRateLimitMessage(sourceRateLimited.source, sourceRateLimited.status, sourceRateLimited.retryAt),
+          sourceRateLimited.retryAt,
         );
         continue;
       }
@@ -85,9 +90,9 @@ export async function scrapePendingDetails(links: SavedLink[]): Promise<Map<stri
         } catch (error) {
           if (error instanceof RateLimitedError) {
             limited = error;
-            jobstreetRateLimited = error;
-            lastError = createRateLimitMessage(error.status, error.retryAt);
-            console.warn(`[scraper] ${lastError}`);
+            sourceRateLimited = error;
+            lastError = createRateLimitMessage(error.source, error.status, error.retryAt);
+            console.warn(`[scraper] Pembatasan saat membuka detail ${job.job_link}: ${lastError}`);
             break;
           }
           lastError = error instanceof Error ? error.message : String(error);
@@ -121,7 +126,7 @@ export async function scrapePendingDetails(links: SavedLink[]): Promise<Map<stri
         }
       }
       if (blocked) {
-        console.error("[scraper] Tahap detail dihentikan setelah terdeteksi captcha atau pemblokiran.");
+        console.error(`[scraper] Tahap detail dihentikan setelah terdeteksi captcha atau pemblokiran pada ${job.job_link}.`);
         for (const pendingJob of jobs.slice(jobIndex + 1)) {
           const pendingSummary = summaries.get(pendingJob.link_id);
           if (!pendingSummary) continue;
@@ -148,8 +153,9 @@ async function loadDetails(page: Page, job: PendingJob): Promise<JobDetails | nu
   const response = await page.goto(job.job_link, { waitUntil: "domcontentloaded", timeout: PAGE_TIMEOUT_MS });
   if (!response || !response.ok()) {
     const status = response?.status();
-    if (job.source === "jobstreet" && (status === 429 || status === 503)) {
-      throw new RateLimitedError(status, parseRetryAfter(response?.headers()["retry-after"] ?? null));
+    if (response) await saveFailedHtml(job.source, await page.content());
+    if (status !== undefined && isRateLimitStatus(job.source, status)) {
+      throw new RateLimitedError(job.source, status, parseRetryAfter(response?.headers()["retry-after"] ?? null));
     }
     if (status === 403) {
       throw new BlockedPageError(`Situs menolak akses detail (HTTP 403) di ${job.job_link}. Data lama dipertahankan.`);
@@ -161,6 +167,10 @@ async function loadDetails(page: Page, job: PendingJob): Promise<JobDetails | nu
   await page.locator("body").waitFor({ state: "visible", timeout: PAGE_TIMEOUT_MS });
   const html = await page.content();
   if (isBlockedPage(html)) {
+    await saveFailedHtml(job.source, html);
+    if (job.source === "glints") {
+      throw new RateLimitedError("glints", 403, null);
+    }
     throw new BlockedPageError(`Halaman detail mendeteksi captcha atau pemblokiran di ${job.job_link}. Data lama dipertahankan.`);
   }
 
@@ -217,8 +227,8 @@ async function loadDetails(page: Page, job: PendingJob): Promise<JobDetails | nu
         panjangSelector: selectorDetails.job_description?.length ?? 0,
       };
       console.error(`[scraper] Diagnosis deskripsi kosong untuk ${job.job_link}: ${JSON.stringify(diagnostics)}`);
-      await saveFailedHtml(job.source, html);
     }
+    await saveFailedHtml(job.source, html);
     const missing = [
       !merged.job_title && "judul lowongan",
       !merged.job_description && "deskripsi lowongan",

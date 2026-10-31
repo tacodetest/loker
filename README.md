@@ -27,26 +27,24 @@ Analisis CV mengambil lowongan aktif tujuh hari terakhir, menyaring maksimal 20 
 
 Navigasi antarhalaman mempertahankan state sementara dalam memori tab. Hasil analisis CV tersimpan di Supabase agar tetap tersedia setelah refresh atau login kembali.
 
-## Scraper dan HTML debug
+## Scraper Glints dan HTML debug
 
-Tambahkan tautan pencarian JobStreet atau Glints lewat menu **Kelola tautan**. GitHub Actions membaca semua tautan aktif dari Supabase, menemukan maksimal 100 tautan detail per pencarian, mengambil detail, lalu menyimpan hasilnya. Tombol **Perbarui sekarang** pada tautan menjalankan scrape di latar belakang; halaman boleh ditinggalkan, dan status diperbarui setelah proses selesai. Jika situs menolak akses atau scrape gagal, status ringkas dan detail kesalahan terlihat di tautan tersebut. Status diblokir menjelaskan bahwa data lama tetap dipertahankan. Mengganti URL menghapus lowongan yatim dari URL lama; URL baru dapat diperbarui lewat tombol manual atau run otomatis berikutnya.
+Tambahkan tautan pencarian Glints lewat menu **Kelola tautan**. GitHub Actions membaca tautan aktif Glints dari Supabase, menemukan maksimal 100 tautan detail per pencarian, mengambil detail, lalu menyimpan hasilnya. Tautan JobStreet lama tetap tampil, tetapi tidak diproses; tombol pembaruannya dinonaktifkan, sementara ganti URL dan hapus tetap tersedia. Tombol **Perbarui sekarang** menjalankan scrape di latar belakang; halaman boleh ditinggalkan dan status diperbarui setelah proses selesai. Mengganti URL menghapus lowongan yatim dari URL lama.
 
-Jalankan `npm run scrape:debug` dengan URL pencarian yang ingin diuji di `.env.local`:
+Jalankan `npm run scrape:debug` dengan URL pencarian Glints yang ingin diuji di `.env.local`:
 
 ```env
-DEBUG_JOBSTREET_SEARCH_URL=https://id.jobstreet.com/id/Warehouse-jobs/in-Surabaya-Jawa-Timur?daterange=7
+DEBUG_JOBSTREET_SEARCH_URL=
 DEBUG_GLINTS_SEARCH_URL=
 ```
 
 Mode debug menyimpan HTML halaman pencarian ke `debug/`, menemukan tautan detail secara otomatis dari halaman itu, lalu menyimpan HTML detail pertama yang ditemukan. Ia juga mencetak deteksi JSON-LD, `__NEXT_DATA__`, serta nama field tanggal. Gunakan hasilnya untuk memeriksa selector dan format data saat struktur situs berubah. Untuk detail, scraper mengutamakan JSON-LD, lalu `__NEXT_DATA__` Glints, kemudian selector CSS yang terkonfirmasi.
 
-Setelah selector diverifikasi, pasang Chromium lokal dengan `npx playwright install chromium`, lalu scraper dapat dijalankan dengan `npm run scrape`. Tahap pertama mengambil maksimal 100 tautan detail per pencarian (JobStreet memakai halaman `?page=N`; Glints memakai pengguliran), lalu tahap kedua mengambil detail dari antrean yang adil per sumber. Proses memakai Chromium headless dan concurrency 1. JobStreet dibatasi 30 detail per run dengan jeda acak 15–30 detik; Glints memakai jeda yang dikonfigurasi untuk sumber tersebut. Jika situs menolak akses (HTTP 403), captcha, atau pembatasan HTTP 429/503 terdeteksi, scraper berhenti secara sopan dan data lama dipertahankan. Untuk JobStreet, 429/503 menghentikan semua permintaan JobStreet pada run tersebut dan menerapkan cooldown minimal enam jam. HTML detail yang gagal didiagnosis disimpan maksimal 5 file di `debug/failed/` per run. GitHub Actions menyimpan folder `debug/` sebagai artifact.
-
-Untuk menghindari HTTP 403 JobStreet dari IP runner GitHub-hosted, lihat panduan [runner Windows di jaringan rumah](./docs/SELF_HOSTED_RUNNER.md). Workflow tetap berjalan pukul 12.00 dan 00.00 WIB.
+Setelah selector diverifikasi, pasang Chromium lokal dengan `npx playwright install chromium`, lalu jalankan `npm run scrape`. Tahap pertama mengumpulkan maksimal 100 tautan melalui infinite scroll Glints, lalu tahap kedua mengambil detail secara berurutan (concurrency 1). Jika Glints mengembalikan HTTP 403/429/503 atau captcha, scraper menghentikan permintaan berikutnya, menyimpan tautan parsial tanpa mengganti data lama, dan menerapkan cooldown minimal tiga jam (atau lebih lama jika ada `Retry-After`). Lowongan lebih dari tujuh hari ditandai kedaluwarsa. Pembersihan otomatis hanya menghapus lowongan Glints berstatus expired/failed yang sudah lebih dari 14 hari dan tidak lagi terkait tautan aktif; baris JobStreet tidak disentuh. Terapkan migrasi `supabase/migrations/20261102_cleanup_old_glints_jobs.sql` sebelum menjalankan versi ini. HTML detail yang gagal didiagnosis disimpan maksimal 5 file di `debug/failed/` per run. GitHub Actions menyimpan folder `debug/` sebagai artifact.
 
 ## GitHub Actions
 
-Workflow `.github/workflows/scrape.yml` berjalan setiap 12 jam: pukul 12.00 dan 00.00 WIB (cron UTC `05:00` dan `17:00`) serta dapat dijalankan manual lewat **workflow_dispatch** untuk memilih semua sumber, Glints, atau JobStreet. Glints berjalan di GitHub-hosted Ubuntu. JobStreet hanya berjalan jika repository variable `SCRAPER_RUNNER` menunjuk ke self-hosted runner; ia tidak dijalankan dari Ubuntu GitHub-hosted. Atur repository secrets:
+Workflow `.github/workflows/scrape.yml` menjalankan Glints setiap hari pukul 12.00 dan 00.00 WIB (cron UTC `05:00` dan `17:00`) dan dapat dijalankan manual lewat **workflow_dispatch**. Cron GitHub Actions dapat terlambat beberapa menit. Pada repository publik, workflow terjadwal dapat dinonaktifkan otomatis setelah 60 hari tanpa aktivitas repository. JobStreet dinonaktifkan; panduan [self-hosted runner](./docs/SELF_HOSTED_RUNNER.md) tidak diperlukan selama hanya Glints yang aktif. Atur repository secrets:
 
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`

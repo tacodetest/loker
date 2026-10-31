@@ -1,5 +1,7 @@
 # Menjalankan scraper dari jaringan rumah
 
+> **Tidak diperlukan saat scraper hanya mengaktifkan Glints.** JobStreet sedang dinonaktifkan. Panduan ini tetap disimpan untuk penggunaan JobStreet di masa mendatang.
+
 JobStreet dapat menolak alamat IP GitHub-hosted runner dengan HTTP 403. Untuk menjalankan scraper dari komputer Windows di jaringan rumah, gunakan self-hosted runner GitHub Actions. Scraper tidak mencoba melewati pemblokiran atau captcha; bila akses ditolak, proses berhenti dan data lama dipertahankan.
 
 ## Mendaftarkan runner Windows

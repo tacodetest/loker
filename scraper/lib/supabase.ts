@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
-import { DETAIL_PER_RUN, DETAIL_PER_RUN_JOBSTREET, MAX_DETAIL_ATTEMPTS } from "../config";
+import { DETAIL_PER_RUN, ENABLED_SOURCES, MAX_DETAIL_ATTEMPTS } from "../config";
+import { isSourceEnabled } from "./enabled-sources";
 import type { JobLinkCandidate, JobSource, LinkStatus, PendingJob, SavedLink } from "./types";
 import { normalizeJobUrl, sourceFromUrl } from "./utils";
 
@@ -28,14 +29,13 @@ export function scraperDb() {
 export async function getSavedLinks(
   ownerId?: string,
   sourceUrl?: string,
-  source?: JobSource,
 ): Promise<SavedLink[]> {
   let query = scraperDb().from("saved_links")
     .select("id, owner_id, url, source, is_active, last_status, last_scraped_at, last_error")
-    .eq("is_active", true);
+    .eq("is_active", true)
+    .in("source", ENABLED_SOURCES);
   if (ownerId) query = query.eq("owner_id", ownerId);
   if (sourceUrl) query = query.eq("url", sourceUrl);
-  if (source) query = query.eq("source", source);
   const { data, error } = await query.order("created_at", { ascending: true });
   if (error) throw new Error(`Gagal memuat tautan tersimpan: ${error.message}`);
   const links = (data ?? []) as SavedLink[];
@@ -90,16 +90,17 @@ export async function upsertJobLinks(link: SavedLink, candidates: JobLinkCandida
 }
 
 export async function getPendingJobs(links: SavedLink[]): Promise<PendingJob[]> {
-  if (!links.length) return [];
+  const enabledLinks = links.filter(({ source }) => isSourceEnabled(source));
+  if (!enabledLinks.length) return [];
   const jobs: PendingJob[] = [];
-  for (const link of links) {
+  for (const link of enabledLinks) {
     const { data, error } = await scraperDb().from("jobs")
       .select("job_link, link_id, owner_id, source, detail_attempts, posted_at_hint")
       .eq("detail_status", "pending")
       .eq("link_id", link.id)
-      .in("source", ["jobstreet", "glints"])
+      .in("source", ENABLED_SOURCES)
       .order("last_seen_at", { ascending: false })
-      .limit(link.source === "jobstreet" ? DETAIL_PER_RUN_JOBSTREET : DETAIL_PER_RUN);
+      .limit(DETAIL_PER_RUN);
     if (error) throw new Error(`Gagal memuat detail untuk tautan ${link.id}: ${error.message}`);
     jobs.push(...(data ?? []) as PendingJob[]);
   }
@@ -112,6 +113,10 @@ export async function setLinkStatus(
   errorText: string | null,
   hasSuccessfulDetail: boolean,
 ) {
+  if (!isSourceEnabled(link.source)) {
+    console.info(`[scraper] Status tidak diubah untuk sumber nonaktif ${link.source}: ${link.url}`);
+    return;
+  }
   const relationCount = await scraperDb().from("job_sources")
     .select("job_url", { count: "exact", head: true })
     .eq("owner_id", link.owner_id).eq("source_url", link.url);
@@ -175,6 +180,15 @@ export async function replaceSourceJobs(link: SavedLink, jobUrls: string[]) {
     p_job_urls: jobUrls,
   });
   if (error) throw new Error(`Gagal memperbarui lowongan usang dari ${link.url}: ${error.message}`);
+}
+
+export async function cleanupExpiredJobs(): Promise<number> {
+  const { data, error } = await scraperDb().rpc("cleanup_expired_glints_jobs");
+  if (error) throw new Error(`Gagal membersihkan lowongan kedaluwarsa/gagal: ${error.message}`);
+  if (typeof data !== "number") {
+    throw new Error("Hasil pembersihan lowongan tidak valid.");
+  }
+  return data;
 }
 
 export type { JobSource };

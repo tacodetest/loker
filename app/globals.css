@@ -366,6 +366,7 @@ a { color: inherit; }
 .saved-link-main { display: grid; min-width: 0; gap: 6px; color: #64748b; font-size: .77rem; }
 .saved-link-main > a { color: #345b9a; overflow-wrap: anywhere; }
 .saved-link-main > small { color: #8995a6; }
+.source-disabled-label { width: fit-content; padding: 2px 7px; border-radius: 999px; background: #eef1f5; color: #667085; font-size: .68rem; font-weight: 700; }
 .saved-link-actions, .saved-link-replace { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; }
 .saved-link-replace { grid-column: 1 / -1; }
 .saved-link-replace .filter-search { min-width: 250px; flex: 1; }

@@ -1,5 +1,4 @@
-import { filterLinksBySource, parseScrapeSource } from "./lib/source-filter";
-import { getJobStreetCooldownUntil } from "./lib/rate-limit";
+import { ENABLED_SOURCES } from "./config";
 import { scraperDb } from "./lib/supabase";
 import type { SavedLink } from "./lib/types";
 
@@ -9,7 +8,6 @@ const GLINTS_SUCCESS_MAX_AGE_MS = 14 * 60 * 60 * 1000;
 async function main() {
   const ownerId = process.env.SCRAPE_OWNER_ID;
   const sourceUrl = process.env.SCRAPE_SOURCE_URL;
-  const selection = parseScrapeSource(process.env.SCRAPE_SOURCE);
   const db = scraperDb();
   let query = db.from("saved_links")
     .select("id, owner_id, url, source, is_active, last_status, last_scraped_at, last_success_at, last_error")
@@ -19,11 +17,11 @@ async function main() {
   const { data, error } = await query.order("created_at", { ascending: true });
   if (error) throw new Error(`Gagal membaca tautan aktif: ${error.message}`);
 
-  const links = filterLinksBySource((data ?? []) as SavedLink[], selection);
+  const links = (data ?? []).filter((link) => ENABLED_SOURCES.includes(link.source)) as SavedLink[];
   const failures: string[] = [];
   let successfulDetails = 0;
   if (!links.length) {
-    console.info("[verifikasi] Tidak ada tautan aktif yang sesuai dengan filter sumber.");
+    console.info("[verifikasi] Tidak ada tautan aktif Glints yang dapat diverifikasi.");
     process.exitCode = 1;
     return;
   }
@@ -119,22 +117,10 @@ async function main() {
       }
     }
 
-    const cooldown = link.source === "jobstreet"
-      ? getJobStreetCooldownUntil(link.last_status, link.last_scraped_at, link.last_error, now)
-      : null;
-    if (link.source === "jobstreet" && (link.last_status === "dibatasi" || link.last_status === "diblokir")) {
-      console.info(`[verifikasi] JobStreet berstatus ${link.last_status}; ${link.last_error ?? "data lama dipertahankan."}`);
-    } else if (cooldown) {
-      console.info(`[verifikasi] JobStreet masih dalam cooldown sampai ${cooldown.toISOString()}.`);
-    }
   }
 
-  const hasExpectedSuccess = links.some((link) => (
-    link.source === "jobstreet"
-    && (link.last_status === "dibatasi" || link.last_status === "diblokir")
-  ));
-  if (successfulDetails === 0 && !hasExpectedSuccess) {
-    failures.push("Tidak ada detail lowongan berstatus ok untuk sumber yang diverifikasi.");
+  if (successfulDetails === 0) {
+    failures.push("Tidak ada detail lowongan Glints berstatus ok.");
   }
   if (failures.length) {
     for (const failure of new Set(failures)) console.error(`[verifikasi] GAGAL: ${failure}`);

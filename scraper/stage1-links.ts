@@ -12,7 +12,7 @@ import {
 } from "./config";
 import type { JobLinkCandidate, SavedLink } from "./lib/types";
 import { isBlockedPage, limitUniqueJobLinks, normalizeJobUrl, sleepRandom } from "./lib/utils";
-import { RateLimitedError, parseRetryAfter } from "./lib/rate-limit";
+import { isRateLimitStatus, RateLimitedError, parseRetryAfter } from "./lib/rate-limit";
 import { replaceSourceJobs, scraperDb, upsertJobLinks } from "./lib/supabase";
 import * as glints from "./sources/glints";
 import * as jobstreet from "./sources/jobstreet";
@@ -36,12 +36,22 @@ export async function collectJobLinks(link: SavedLink): Promise<number> {
     });
     let candidates: JobLinkCandidate[];
     let rateLimited: RateLimitedError | null = null;
+    let timedOut = false;
     if (link.source === "jobstreet") {
       const result = await collectJobStreetLinks(page, searchUrl);
       candidates = result.candidates;
       rateLimited = result.rateLimited;
     } else {
-      candidates = await collectGlintsLinksByScroll(page, searchUrl);
+      try {
+        const result = await collectGlintsLinksByScroll(page, searchUrl);
+        candidates = result.candidates;
+        rateLimited = result.rateLimited;
+        timedOut = result.timedOut;
+      } catch (error) {
+        if (!(error instanceof RateLimitedError)) throw error;
+        candidates = [];
+        rateLimited = error;
+      }
     }
     if (!candidates.length) {
       if (rateLimited) throw rateLimited;
@@ -50,8 +60,11 @@ export async function collectJobLinks(link: SavedLink): Promise<number> {
 
     await upsertJobLinks(link, candidates);
     if (rateLimited) {
-      rateLimited = new RateLimitedError(rateLimited.status, rateLimited.retryAt, candidates.length);
+      rateLimited = new RateLimitedError(link.source, rateLimited.status, rateLimited.retryAt, candidates.length);
       throw rateLimited;
+    }
+    if (timedOut) {
+      throw new Error(`Pengguliran Glints mencapai batas waktu di ${searchUrl}; ${candidates.length} tautan parsial disimpan dan data lama dipertahankan.`);
     }
     const freshJobUrls = candidates
       .map(({ job_link }) => normalizeJobUrl(job_link, link.url))
@@ -112,7 +125,10 @@ async function collectJobStreetLinks(
   };
 }
 
-export async function collectGlintsLinksByScroll(page: Page, searchUrl: string): Promise<JobLinkCandidate[]> {
+export async function collectGlintsLinksByScroll(
+  page: Page,
+  searchUrl: string,
+): Promise<{ candidates: JobLinkCandidate[]; rateLimited: RateLimitedError | null; timedOut: boolean }> {
   await loadHtml(page, searchUrl, "glints");
   const initialHtml = await page.content();
   const listedJobs = glints.extractInitialJobs(initialHtml);
@@ -124,40 +140,98 @@ export async function collectGlintsLinksByScroll(page: Page, searchUrl: string):
   }
 
   const seenAnchorHrefs = new Set(initialAnchors.map(({ href }) => href));
+  console.info(
+    `[scraper] Glints scroll mulai ${searchUrl}: kartu awal=${initialAnchors.length}, tautan detail awal=${uniqueLinks.size}.`,
+  );
   let noGrowthCount = 0;
+  let timedOut = false;
+  let rateLimited: RateLimitedError | null = null;
+  let stopReason = uniqueLinks.size >= MAX_LINKS_PER_SEARCH ? "batas-100-tercapai" : "";
   const startedAt = Date.now();
-  while (uniqueLinks.size < MAX_LINKS_PER_SEARCH && noGrowthCount < 3) {
-    if (Date.now() - startedAt >= GLINTS_SCROLL_TIMEOUT_MS) {
-      throw new Error(`Pengguliran Glints melewati batas waktu di ${searchUrl}. Hasil parsial tidak menggantikan data lama.`);
+  const onResponse = (response: import("playwright").Response) => {
+    let responseHost = "";
+    try {
+      responseHost = new URL(response.url()).hostname;
+    } catch {
+      return;
     }
-    const previousCount = await page.locator(glints.glintsConfig.listingLinkSelector).count();
-    const loadMore = page.getByRole("button", {
-      name: /muat lebih banyak|lihat lebih banyak|load more|show more/i,
-    }).first();
-    if (await loadMore.count() && await loadMore.isVisible()) {
-      await loadMore.click();
-    } else {
-      await page.evaluate(() => window.scrollBy(0, Math.max(window.innerHeight * 0.8, 600)));
+    if (responseHost !== "glints.com" && !responseHost.endsWith(".glints.com")) return;
+    const status = response.status();
+    if (isRateLimitStatus("glints", status)) {
+      rateLimited = new RateLimitedError(
+        "glints",
+        status,
+        parseRetryAfter(response.headers()["retry-after"] ?? null),
+        uniqueLinks.size,
+      );
     }
+  };
+  page.on("response", onResponse);
+  try {
+    while (uniqueLinks.size < MAX_LINKS_PER_SEARCH && noGrowthCount < 3) {
+      if (Date.now() - startedAt >= GLINTS_SCROLL_TIMEOUT_MS) {
+        timedOut = true;
+        stopReason = "batas-waktu";
+        break;
+      }
+      const previousUniqueCount = uniqueLinks.size;
+      const loadMore = page.getByRole("button", {
+        name: /muat lebih banyak|lihat lebih banyak|load more|show more/i,
+      }).first();
+      if (await loadMore.count() && await loadMore.isVisible()) {
+        await loadMore.click();
+      } else {
+        await page.evaluate(() => window.scrollBy(0, Math.max(window.innerHeight * 0.8, 600)));
+      }
 
-    await page.waitForFunction(
-      ({ selector, count }) => document.querySelectorAll(selector).length > count,
-      { selector: glints.glintsConfig.listingLinkSelector, count: previousCount },
-      { timeout: 2_000 },
-    ).catch(() => undefined);
-    const loadedAnchors = await readListingAnchors(page, glints.glintsConfig.listingLinkSelector);
-    const newAnchors = loadedAnchors.filter(({ href }) => !seenAnchorHrefs.has(href));
-    for (const { href } of loadedAnchors) seenAnchorHrefs.add(href);
-    for (const candidate of glints.extractListingLinksFromBrowser(newAnchors, searchUrl, listedJobs, true)) {
-      if (!uniqueLinks.has(candidate.job_link)) uniqueLinks.set(candidate.job_link, candidate);
-      if (uniqueLinks.size === MAX_LINKS_PER_SEARCH) break;
+      await page.waitForFunction(
+        ({ selector, previousHrefs }) => {
+          const anchors = [...document.querySelectorAll<HTMLAnchorElement>(selector)];
+          return anchors.length > previousHrefs.length
+            || anchors.some(({ href }) => !previousHrefs.includes(href));
+        },
+        { selector: glints.glintsConfig.listingLinkSelector, previousHrefs: [...seenAnchorHrefs] },
+        { timeout: 5_000 },
+      ).catch(() => undefined);
+      const loadedAnchors = await readListingAnchors(page, glints.glintsConfig.listingLinkSelector);
+      const newAnchors = loadedAnchors.filter(({ href }) => !seenAnchorHrefs.has(href));
+      for (const { href } of loadedAnchors) seenAnchorHrefs.add(href);
+      for (const candidate of glints.extractListingLinksFromBrowser(newAnchors, searchUrl, listedJobs, true)) {
+        if (!uniqueLinks.has(candidate.job_link)) uniqueLinks.set(candidate.job_link, candidate);
+        if (uniqueLinks.size === MAX_LINKS_PER_SEARCH) break;
+      }
+      noGrowthCount = uniqueLinks.size > previousUniqueCount ? 0 : noGrowthCount + 1;
+      if (rateLimited) {
+        stopReason = "respons-http-membatasi";
+      }
+      const html = await page.content();
+      if (!rateLimited && isBlockedPage(html)) {
+        rateLimited = new RateLimitedError("glints", 403, null, uniqueLinks.size);
+        stopReason = "captcha-atau-pemblokiran";
+      } else if (uniqueLinks.size >= MAX_LINKS_PER_SEARCH) {
+        stopReason = "batas-100-tercapai";
+      } else if (noGrowthCount >= 3) {
+        stopReason = "tidak-ada-pertumbuhan-3-kali";
+      }
+      console.info(
+        `[scraper] Glints scroll ${searchUrl}: iterasi kartu=${loadedAnchors.length}, tautan unik=${uniqueLinks.size}, tanpa-pertumbuhan=${noGrowthCount}.`,
+      );
+      if (rateLimited) break;
+      if (uniqueLinks.size < MAX_LINKS_PER_SEARCH && noGrowthCount < 3) {
+        await sleepRandom(DELAY_MIN_MS, DELAY_MAX_MS);
+      }
     }
-    noGrowthCount = loadedAnchors.length > previousCount ? 0 : noGrowthCount + 1;
-    if (uniqueLinks.size < MAX_LINKS_PER_SEARCH && noGrowthCount < 3) {
-      await sleepRandom(DELAY_MIN_MS, DELAY_MAX_MS);
-    }
+  } finally {
+    page.off("response", onResponse);
   }
-  return limitUniqueJobLinks([...uniqueLinks.values()], MAX_LINKS_PER_SEARCH);
+  console.info(
+    `[scraper] Glints scroll berhenti di ${searchUrl}: alasan=${stopReason || "selesai"}, kartu=${seenAnchorHrefs.size}, tautan unik=${uniqueLinks.size}.`,
+  );
+  return {
+    candidates: limitUniqueJobLinks([...uniqueLinks.values()], MAX_LINKS_PER_SEARCH),
+    rateLimited,
+    timedOut,
+  };
 }
 
 async function readListingAnchors(page: Page, selector: string) {
@@ -173,8 +247,8 @@ async function loadHtml(page: Page, url: string, source: "jobstreet" | "glints")
   const response = await page.goto(url, { waitUntil: "domcontentloaded", timeout: PAGE_TIMEOUT_MS });
   if (!response || !response.ok()) {
     const status = response?.status();
-    if (source === "jobstreet" && (status === 429 || status === 503)) {
-      throw new RateLimitedError(status, parseRetryAfter(response?.headers()["retry-after"] ?? null));
+    if (status !== undefined && isRateLimitStatus(source, status)) {
+      throw new RateLimitedError(source, status, parseRetryAfter(response?.headers()["retry-after"] ?? null));
     }
     if (status === 403) {
       throw new Error(
@@ -186,6 +260,7 @@ async function loadHtml(page: Page, url: string, source: "jobstreet" | "glints")
   await page.locator("body").waitFor({ state: "visible", timeout: PAGE_TIMEOUT_MS });
   const html = await page.content();
   if (isBlockedPage(html)) {
+    if (source === "glints") throw new RateLimitedError("glints", 403, null);
     throw new Error(`Halaman mendeteksi captcha atau pemblokiran di ${url}. Data lama dipertahankan.`);
   }
   return html;

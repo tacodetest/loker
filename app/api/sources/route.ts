@@ -4,7 +4,8 @@ import { z } from "zod";
 import { getRequestUser } from "@/lib/auth";
 import { getSourceUrl } from "@/lib/source-url";
 import { db } from "@/lib/supabase";
-import { formatCooldownMessage, getJobStreetCooldownUntil } from "@/scraper/lib/rate-limit";
+import { getUnsupportedSourceMessage } from "@/scraper/lib/enabled-sources";
+import { formatCooldownMessage, getSourceCooldownUntil } from "@/scraper/lib/rate-limit";
 
 const noStore = { headers: { "Cache-Control": "no-store, max-age=0" } };
 
@@ -107,9 +108,11 @@ export async function POST(request: Request) {
   if (!user) return NextResponse.json({ error: "Sesi login berakhir." }, { status: 401, ...noStore });
   const body: unknown = await request.json().catch(() => null);
   const parsed = sourceBody.safeParse(body);
-  if (!parsed.success) return NextResponse.json({ error: "Masukkan URL pencarian JobStreet atau Glints." }, { status: 400, ...noStore });
+  if (!parsed.success) return NextResponse.json({ error: "Masukkan URL pencarian Glints." }, { status: 400, ...noStore });
   const sourceUrl = getSourceUrl(parsed.data.url);
-  if (!sourceUrl) return NextResponse.json({ error: "URL harus berasal dari JobStreet atau Glints." }, { status: 400, ...noStore });
+  if (!sourceUrl) return NextResponse.json({ error: "URL harus berasal dari Glints." }, { status: 400, ...noStore });
+  const unsupportedMessage = getUnsupportedSourceMessage(sourceUrl.source);
+  if (unsupportedMessage) return NextResponse.json({ error: unsupportedMessage }, { status: 400, ...noStore });
 
   try {
     const url = sourceUrl.url.toString();
@@ -155,7 +158,11 @@ export async function PATCH(request: Request) {
   const parsed = refreshBody.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: "URL tautan yang akan diperbarui tidak valid." }, { status: 400, ...noStore });
   const sourceUrl = getSourceUrl(parsed.data.url);
-  if (!sourceUrl) return NextResponse.json({ error: "URL harus berasal dari JobStreet atau Glints." }, { status: 400, ...noStore });
+  if (!sourceUrl) return NextResponse.json({ error: "URL harus berasal dari Glints." }, { status: 400, ...noStore });
+  const unsupportedMessage = getUnsupportedSourceMessage(sourceUrl.source);
+  if (unsupportedMessage) {
+    return NextResponse.json({ ok: true, skipped: true, message: unsupportedMessage }, noStore);
+  }
 
   try {
     const url = sourceUrl.url.toString();
@@ -168,9 +175,12 @@ export async function PATCH(request: Request) {
     if (error) throw new Error(error.message);
     if (!savedLink) return NextResponse.json({ error: "Tautan aktif tidak ditemukan di akun ini." }, { status: 404, ...noStore });
 
-    const cooldownUntil = savedLink.source === "jobstreet"
-      ? getJobStreetCooldownUntil(savedLink.last_status, savedLink.last_scraped_at, savedLink.last_error)
-      : null;
+    const cooldownUntil = getSourceCooldownUntil(
+      savedLink.source,
+      savedLink.last_status,
+      savedLink.last_scraped_at,
+      savedLink.last_error,
+    );
     if (cooldownUntil) {
       return NextResponse.json({
         ok: true,
@@ -206,9 +216,9 @@ export async function PUT(request: Request) {
   if (!parsed.success) return NextResponse.json({ error: "Data penggantian URL tidak valid." }, { status: 400, ...noStore });
   const oldSource = getSourceUrl(parsed.data.oldUrl);
   const newSource = getSourceUrl(parsed.data.newUrl);
-  if (!oldSource || !newSource) {
-    return NextResponse.json({ error: "URL harus berasal dari JobStreet atau Glints." }, { status: 400, ...noStore });
-  }
+  if (!oldSource || !newSource) return NextResponse.json({ error: "URL harus berasal dari Glints." }, { status: 400, ...noStore });
+  const unsupportedMessage = getUnsupportedSourceMessage(newSource.source);
+  if (unsupportedMessage) return NextResponse.json({ error: unsupportedMessage }, { status: 400, ...noStore });
   const oldUrl = oldSource.url.toString();
   const newUrl = newSource.url.toString();
   if (oldUrl === newUrl) return NextResponse.json({ error: "URL baru harus berbeda." }, { status: 400, ...noStore });
@@ -233,7 +243,7 @@ export async function DELETE(request: Request) {
   const user = await getRequestUser(request);
   if (!user) return NextResponse.json({ error: "Sesi login berakhir." }, { status: 401, ...noStore });
   const parsedUrl = getSourceUrl(new URL(request.url).searchParams.get("url"));
-  if (!parsedUrl) return NextResponse.json({ error: "URL harus berasal dari JobStreet atau Glints." }, { status: 400, ...noStore });
+  if (!parsedUrl) return NextResponse.json({ error: "URL harus berasal dari Glints." }, { status: 400, ...noStore });
   const sourceUrl = parsedUrl.url.toString();
 
   try {

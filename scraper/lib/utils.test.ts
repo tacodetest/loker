@@ -20,11 +20,12 @@ import {
 } from "../sources/jobstreet";
 import {
   createRateLimitMessage,
-  getJobStreetCooldownUntil,
+  isRateLimitStatus,
+  getSourceCooldownUntil,
   getRateLimitRetryAt,
   parseRetryAfter,
 } from "./rate-limit";
-import { filterLinksBySource, resolveWorkflowSources } from "./source-filter";
+import { getUnsupportedSourceMessage, isSourceEnabled } from "./enabled-sources";
 
 test("source detection accepts JobStreet and Glints but rejects lookalike domains", () => {
   assert.equal(sourceFromUrl("https://id.jobstreet.com/jobs"), "jobstreet");
@@ -32,18 +33,11 @@ test("source detection accepts JobStreet and Glints but rejects lookalike domain
   assert.equal(sourceFromUrl("https://jobstreet.com.attacker.invalid/jobs"), null);
 });
 
-test("filter sumber hanya memilih tautan yang diminta", () => {
-  const links = [{ source: "glints" as const }, { source: "jobstreet" as const }];
-  assert.deepEqual(filterLinksBySource(links, "glints"), [links[0]]);
-  assert.deepEqual(filterLinksBySource(links, "jobstreet"), [links[1]]);
-  assert.deepEqual(filterLinksBySource(links, "all"), links);
-});
-
-test("workflow memilih sumber dari URL, pilihan dispatch, atau semua pada jadwal", () => {
-  assert.deepEqual(resolveWorkflowSources("workflow_dispatch", "all", "https://glints.com/jobs"), ["glints"]);
-  assert.deepEqual(resolveWorkflowSources("workflow_dispatch", "jobstreet", ""), ["jobstreet"]);
-  assert.deepEqual(resolveWorkflowSources("schedule", "glints", ""), ["glints", "jobstreet"]);
-  assert.throws(() => resolveWorkflowSources("workflow_dispatch", "all", "https://example.com/jobs"));
+test("hanya Glints aktif dan URL JobStreet ditolak dengan pesan operasional", () => {
+  assert.equal(isSourceEnabled("glints"), true);
+  assert.equal(isSourceEnabled("jobstreet"), false);
+  assert.equal(getUnsupportedSourceMessage("glints"), null);
+  assert.equal(getUnsupportedSourceMessage("jobstreet"), "Saat ini hanya Glints yang didukung.");
 });
 
 test("job URLs are canonicalized and tracking parameters are removed", () => {
@@ -84,21 +78,45 @@ test("Retry-After mendukung durasi detik dan tanggal HTTP", () => {
 
 test("cooldown JobStreet bertahan minimal enam jam dan menghormati Retry-After lebih lama", () => {
   const now = new Date("2026-10-31T00:00:00.000Z");
-  const error = createRateLimitMessage(429, new Date("2026-10-31T12:00:00.000Z"), now);
+  const error = createRateLimitMessage("jobstreet", 429, new Date("2026-10-31T12:00:00.000Z"), now);
   assert.equal(getRateLimitRetryAt(error)?.toISOString(), "2026-10-31T12:00:00.000Z");
   assert.equal(
-    getJobStreetCooldownUntil("dibatasi", now.toISOString(), error, now)?.toISOString(),
+    getSourceCooldownUntil("jobstreet", "dibatasi", now.toISOString(), error, now)?.toISOString(),
     "2026-10-31T12:00:00.000Z",
   );
   assert.equal(
-    getJobStreetCooldownUntil("dibatasi", now.toISOString(), null, now)?.toISOString(),
+    getSourceCooldownUntil("jobstreet", "dibatasi", now.toISOString(), null, now)?.toISOString(),
     "2026-10-31T06:00:00.000Z",
   );
-  assert.equal(getJobStreetCooldownUntil("berhasil", now.toISOString(), error, now), null);
+  assert.equal(getSourceCooldownUntil("jobstreet", "berhasil", now.toISOString(), error, now), null);
   assert.equal(
-    getJobStreetCooldownUntil("dibatasi", now.toISOString(), null, new Date("2026-10-31T07:00:00.000Z")),
+    getSourceCooldownUntil("jobstreet", "dibatasi", now.toISOString(), null, new Date("2026-10-31T07:00:00.000Z")),
     null,
   );
+});
+
+test("cooldown Glints bertahan minimal tiga jam dan Retry-After panjang dihormati", () => {
+  const now = new Date("2026-10-31T00:00:00.000Z");
+  const retryAt = new Date("2026-10-31T04:30:00.000Z");
+  const message = createRateLimitMessage("glints", 429, retryAt, now);
+  assert.equal(getRateLimitRetryAt(message)?.toISOString(), retryAt.toISOString());
+  assert.equal(
+    getSourceCooldownUntil("glints", "dibatasi", now.toISOString(), message, now)?.toISOString(),
+    retryAt.toISOString(),
+  );
+  assert.equal(
+    getSourceCooldownUntil("glints", "dibatasi", now.toISOString(), null, now)?.toISOString(),
+    "2026-10-31T03:00:00.000Z",
+  );
+});
+
+test("respons 403/429/503 menghentikan Glints tanpa mengubah kebijakan JobStreet yang dormant", () => {
+  assert.equal(isRateLimitStatus("glints", 403), true);
+  assert.equal(isRateLimitStatus("glints", 429), true);
+  assert.equal(isRateLimitStatus("glints", 503), true);
+  assert.equal(isRateLimitStatus("glints", 500), false);
+  assert.equal(isRateLimitStatus("jobstreet", 403), false);
+  assert.equal(isRateLimitStatus("jobstreet", 429), true);
 });
 
 test("JSON-LD parser returns only JobPosting records", () => {
