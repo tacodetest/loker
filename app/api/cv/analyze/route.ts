@@ -34,7 +34,7 @@ function getPublicAnalysis(value: unknown) {
 async function analyzeAndSave(userId: AppUserId, file: Blob) {
   const jobs = await getRecentJobsForMatching(userId);
   if (!jobs.length) {
-    return NextResponse.json({ error: "Belum ada lowongan JobStreet aktif dalam 7 hari terakhir." }, { status: 404, ...noStore });
+    return NextResponse.json({ error: "Belum ada lowongan aktif dalam 7 hari terakhir." }, { status: 404, ...noStore });
   }
 
   const resumeText = await extractResumeText(new Uint8Array(await file.arrayBuffer()));

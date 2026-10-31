@@ -4,10 +4,7 @@ import {
   DELAY_MAX_MS,
   DELAY_MIN_MS,
   GLINTS_SCROLL_TIMEOUT_MS,
-  JOBSTREET_DELAY_MAX_MS,
-  JOBSTREET_DELAY_MIN_MS,
   MAX_LINKS_PER_SEARCH,
-  MAX_PAGES_PER_LINK,
   PAGE_TIMEOUT_MS,
 } from "./config";
 import type { JobLinkCandidate, SavedLink } from "./lib/types";
@@ -15,16 +12,13 @@ import { isBlockedPage, limitUniqueJobLinks, normalizeJobUrl, sleepRandom } from
 import { isRateLimitStatus, RateLimitedError, parseRetryAfter } from "./lib/rate-limit";
 import { replaceSourceJobs, scraperDb, upsertJobLinks } from "./lib/supabase";
 import * as glints from "./sources/glints";
-import * as jobstreet from "./sources/jobstreet";
 
 const browserOptions = {
   headless: true,
 };
 
 export async function collectJobLinks(link: SavedLink): Promise<number> {
-  const searchUrl = link.source === "jobstreet"
-    ? jobstreet.normalizeSearchUrl(link.url, DATE_RANGE_DAYS)
-    : glints.normalizeSearchUrl(link.url);
+  const searchUrl = glints.normalizeSearchUrl(link.url);
   const browser = await chromium.launch(browserOptions);
 
   try {
@@ -34,24 +28,19 @@ export async function collectJobLinks(link: SavedLink): Promise<number> {
       timezoneId: "Asia/Jakarta",
       viewport: { width: 1440, height: 900 },
     });
-    let candidates: JobLinkCandidate[];
-    let rateLimited: RateLimitedError | null = null;
-    let timedOut = false;
-    if (link.source === "jobstreet") {
-      const result = await collectJobStreetLinks(page, searchUrl);
+    let candidates: Awaited<ReturnType<typeof collectGlintsLinksByScroll>>["candidates"];
+    let rateLimited: RateLimitedError | null;
+    let timedOut: boolean;
+    try {
+      const result = await collectGlintsLinksByScroll(page, searchUrl);
       candidates = result.candidates;
       rateLimited = result.rateLimited;
-    } else {
-      try {
-        const result = await collectGlintsLinksByScroll(page, searchUrl);
-        candidates = result.candidates;
-        rateLimited = result.rateLimited;
-        timedOut = result.timedOut;
-      } catch (error) {
-        if (!(error instanceof RateLimitedError)) throw error;
-        candidates = [];
-        rateLimited = error;
-      }
+      timedOut = result.timedOut;
+    } catch (error) {
+      if (!(error instanceof RateLimitedError)) throw error;
+      candidates = [];
+      rateLimited = error;
+      timedOut = false;
     }
     if (!candidates.length) {
       if (rateLimited) throw rateLimited;
@@ -60,7 +49,7 @@ export async function collectJobLinks(link: SavedLink): Promise<number> {
 
     await upsertJobLinks(link, candidates);
     if (rateLimited) {
-      rateLimited = new RateLimitedError(link.source, rateLimited.status, rateLimited.retryAt, candidates.length);
+      rateLimited = new RateLimitedError(rateLimited.status, rateLimited.retryAt, candidates.length);
       throw rateLimited;
     }
     if (timedOut) {
@@ -81,55 +70,11 @@ export async function collectJobLinks(link: SavedLink): Promise<number> {
   }
 }
 
-async function collectJobStreetLinks(
-  page: Page,
-  searchUrl: string,
-): Promise<{ candidates: JobLinkCandidate[]; rateLimited: RateLimitedError | null }> {
-  const uniqueLinks = new Map<string, JobLinkCandidate>();
-  let rateLimited: RateLimitedError | null = null;
-  for (let pageNumber = 1; pageNumber <= MAX_PAGES_PER_LINK; pageNumber += 1) {
-    const pageUrl = new URL(searchUrl);
-    pageUrl.searchParams.set("page", String(pageNumber));
-    let html: string;
-    try {
-      html = await loadHtml(page, pageUrl.toString(), "jobstreet");
-    } catch (error) {
-      if (!(error instanceof RateLimitedError)) throw error;
-      rateLimited = error;
-      break;
-    }
-    const links = await readListingAnchors(page, jobstreet.jobstreetConfig.listingLinkSelector);
-    const candidates = jobstreet.extractListingLinksFromBrowser(links, pageUrl.toString(), html);
-    if (!candidates.length) {
-      if (pageNumber === 1) {
-        throw new Error(
-          `Belum menemukan tautan lowongan JobStreet di ${pageUrl}. Periksa HTML dengan npm run scrape:debug.`,
-        );
-      }
-      break;
-    }
-
-    const previousSize = uniqueLinks.size;
-    for (const candidate of candidates) {
-      if (!uniqueLinks.has(candidate.job_link)) uniqueLinks.set(candidate.job_link, candidate);
-      if (uniqueLinks.size === MAX_LINKS_PER_SEARCH) break;
-    }
-    if (uniqueLinks.size === MAX_LINKS_PER_SEARCH || uniqueLinks.size === previousSize) break;
-    if (pageNumber < MAX_PAGES_PER_LINK) {
-      await sleepRandom(JOBSTREET_DELAY_MIN_MS, JOBSTREET_DELAY_MAX_MS);
-    }
-  }
-  return {
-    candidates: limitUniqueJobLinks([...uniqueLinks.values()], MAX_LINKS_PER_SEARCH),
-    rateLimited,
-  };
-}
-
 export async function collectGlintsLinksByScroll(
   page: Page,
   searchUrl: string,
 ): Promise<{ candidates: JobLinkCandidate[]; rateLimited: RateLimitedError | null; timedOut: boolean }> {
-  await loadHtml(page, searchUrl, "glints");
+  await loadHtml(page, searchUrl);
   const initialHtml = await page.content();
   const listedJobs = glints.extractInitialJobs(initialHtml);
   const initialAnchors = await readListingAnchors(page, glints.glintsConfig.listingLinkSelector);
@@ -157,9 +102,8 @@ export async function collectGlintsLinksByScroll(
     }
     if (responseHost !== "glints.com" && !responseHost.endsWith(".glints.com")) return;
     const status = response.status();
-    if (isRateLimitStatus("glints", status)) {
+    if (isRateLimitStatus(status)) {
       rateLimited = new RateLimitedError(
-        "glints",
         status,
         parseRetryAfter(response.headers()["retry-after"] ?? null),
         uniqueLinks.size,
@@ -206,7 +150,7 @@ export async function collectGlintsLinksByScroll(
       }
       const html = await page.content();
       if (!rateLimited && isBlockedPage(html)) {
-        rateLimited = new RateLimitedError("glints", 403, null, uniqueLinks.size);
+        rateLimited = new RateLimitedError(403, null, uniqueLinks.size);
         stopReason = "captcha-atau-pemblokiran";
       } else if (uniqueLinks.size >= MAX_LINKS_PER_SEARCH) {
         stopReason = "batas-100-tercapai";
@@ -243,12 +187,12 @@ async function readListingAnchors(page: Page, selector: string) {
   );
 }
 
-async function loadHtml(page: Page, url: string, source: "jobstreet" | "glints") {
+async function loadHtml(page: Page, url: string) {
   const response = await page.goto(url, { waitUntil: "domcontentloaded", timeout: PAGE_TIMEOUT_MS });
   if (!response || !response.ok()) {
     const status = response?.status();
-    if (status !== undefined && isRateLimitStatus(source, status)) {
-      throw new RateLimitedError(source, status, parseRetryAfter(response?.headers()["retry-after"] ?? null));
+    if (status !== undefined && isRateLimitStatus(status)) {
+      throw new RateLimitedError(status, parseRetryAfter(response?.headers()["retry-after"] ?? null));
     }
     if (status === 403) {
       throw new Error(
@@ -260,8 +204,7 @@ async function loadHtml(page: Page, url: string, source: "jobstreet" | "glints")
   await page.locator("body").waitFor({ state: "visible", timeout: PAGE_TIMEOUT_MS });
   const html = await page.content();
   if (isBlockedPage(html)) {
-    if (source === "glints") throw new RateLimitedError("glints", 403, null);
-    throw new Error(`Halaman mendeteksi captcha atau pemblokiran di ${url}. Data lama dipertahankan.`);
+    throw new RateLimitedError(403, null);
   }
   return html;
 }

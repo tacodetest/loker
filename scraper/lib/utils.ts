@@ -1,18 +1,12 @@
 import type { JobLinkCandidate, JobSource } from "./types";
 
 const trackingParameters = /^(utm_.+|type|ref|origin|source|tracking|traceinfo|campaign|gclid|fbclid)$/i;
-const jobstreetDomains = [
-  "jobstreet.com", "jobstreet.com.au", "jobstreet.com.hk", "jobstreet.com.my",
-  "jobstreet.com.ph", "jobstreet.com.sg", "jobstreet.com.vn", "jobstreet.co.id",
-  "jobstreet.co.th", "jobstreet.co.nz",
-];
 
 export function sourceFromUrl(value: string): JobSource | null {
   try {
     const url = new URL(value);
     if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.port) return null;
     const host = url.hostname.toLowerCase();
-    if (jobstreetDomains.some((domain) => host === domain || host.endsWith(`.${domain}`))) return "jobstreet";
     if (host === "glints.com" || host.endsWith(".glints.com")) return "glints";
     return null;
   } catch {
@@ -127,100 +121,6 @@ export function findJobPostings(html: string): Array<Record<string, unknown>> {
     }
   }
   return jobs;
-}
-
-export function extractSeekAssignments(html: string): string[] {
-  const assignments: string[] = [];
-  const pattern = /window\.SEEK_(?:REDUX_DATA|APP_DATA|APOLLO_DATA)\s*=\s*/gi;
-  for (const match of html.matchAll(pattern)) {
-    const start = match.index + match[0].length;
-    if (html[start] !== "{") continue;
-    let depth = 0;
-    let quote: "\"" | "'" | null = null;
-    let escaped = false;
-    for (let index = start; index < html.length; index += 1) {
-      const char = html[index];
-      if (quote) {
-        if (escaped) escaped = false;
-        else if (char === "\\") escaped = true;
-        else if (char === quote) quote = null;
-      } else if (char === "\"" || char === "'") {
-        quote = char;
-      } else if (char === "{") {
-        depth += 1;
-      } else if (char === "}") {
-        depth -= 1;
-        if (depth === 0) {
-          assignments.push(html.slice(start, index + 1));
-          break;
-        }
-      }
-    }
-  }
-  return assignments;
-}
-
-export function parseSeekJson(value: string): unknown {
-  let sanitized = "";
-  let quote: "\"" | "'" | null = null;
-  let escaped = false;
-  for (let index = 0; index < value.length; index += 1) {
-    const char = value[index];
-    if (quote) {
-      sanitized += char;
-      if (escaped) escaped = false;
-      else if (char === "\\") escaped = true;
-      else if (char === quote) quote = null;
-      continue;
-    }
-    if (char === "\"" || char === "'") {
-      quote = char;
-      sanitized += char;
-      continue;
-    }
-    if (value.startsWith("undefined", index) &&
-      !/[\w$]/.test(value[index - 1] ?? "") &&
-      !/[\w$]/.test(value[index + "undefined".length] ?? "")) {
-      sanitized += "null";
-      index += "undefined".length - 1;
-      continue;
-    }
-    sanitized += char;
-  }
-  try {
-    return JSON.parse(sanitized);
-  } catch {
-    return null;
-  }
-}
-
-export function findSeekListedAtById(html: string): Map<string, string> {
-  const dates = new Map<string, string>();
-  const visit = (value: unknown, depth = 0) => {
-    if (depth > 30 || value === null || typeof value !== "object") return;
-    if (Array.isArray(value)) {
-      for (const child of value) visit(child, depth + 1);
-      return;
-    }
-    const record = value as Record<string, unknown>;
-    const listedAt = record.listedAt;
-    const dateValue = listedAt !== null && typeof listedAt === "object"
-      ? (listedAt as Record<string, unknown>).dateTimeUtc
-      : null;
-    if (typeof dateValue === "string" && !Number.isNaN(Date.parse(dateValue))) {
-      const ids = [record.id, record.jobId, record.listingId, record.job_id]
-        .filter((id): id is string | number => typeof id === "string" || typeof id === "number");
-      for (const id of ids) dates.set(String(id), new Date(dateValue).toISOString());
-      const shareLink = record.shareLink;
-      if (typeof shareLink === "string") {
-        const match = shareLink.match(/\/job\/(\d+)(?:[/?#]|$)/i);
-        if (match) dates.set(match[1], new Date(dateValue).toISOString());
-      }
-    }
-    for (const child of Object.values(record)) visit(child, depth + 1);
-  };
-  for (const assignment of extractSeekAssignments(html)) visit(parseSeekJson(assignment));
-  return dates;
 }
 
 function collectJobPostings(value: unknown, jobs: Array<Record<string, unknown>>, depth = 0) {

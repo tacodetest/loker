@@ -26,7 +26,7 @@ const MAX_POST_AGE_DAYS = 7;
 const QUERY_BATCH_SIZE = 100;
 
 export type JobsPeriod = "today" | "all";
-export type JobsSite = "all" | "jobstreet" | "glints";
+export type JobsSite = "all" | "glints";
 
 type JobsPageFilters = {
   search?: string;
@@ -37,7 +37,7 @@ type JobsPageFilters = {
 
 async function getLinkedJobUrls(ownerId: AppUserId) {
   const { data: savedLinks, error: savedError } = await db().from("saved_links")
-    .select("url").eq("owner_id", ownerId).eq("is_active", true);
+    .select("url").eq("owner_id", ownerId).eq("source", "glints").eq("is_active", true);
   if (savedError) throw new Error(`Gagal memuat tautan lowongan: ${savedError.message}`);
   const sourceUrls = (savedLinks ?? []).map(({ url }) => url);
   if (!sourceUrls.length) return [];
@@ -228,6 +228,7 @@ export async function getRecentJobStats(ownerId: AppUserId) {
   const { count: pendingJobs = 0, error: pendingError } = await db().from("jobs")
     .select("job_url", { count: "exact", head: true })
     .eq("owner_id", ownerId)
+    .eq("source", "glints")
     .eq("detail_status", "pending");
   if (pendingError) throw new Error(`Gagal memuat jumlah lowongan yang menunggu detail: ${pendingError.message}`);
 

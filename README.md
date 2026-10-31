@@ -15,7 +15,7 @@ Buka `http://localhost:3000`.
 
 Salin `.env.example` menjadi `.env.local`, lalu isi `SUPABASE_URL` dan `SUPABASE_SERVICE_ROLE_KEY`. Key service-role hanya digunakan di server Next.js dan GitHub Actions; jangan gunakan prefix `NEXT_PUBLIC_` atau mengirimkannya ke browser.
 
-Jalankan `supabase.sql` terlebih dahulu untuk menyiapkan tabel aplikasi dan migrasi data yang sudah ada. Setelah itu jalankan `supabase/schema.sql` di Supabase SQL Editor untuk membuat `saved_links` serta menambahkan status detail scraper. Migrasi ini menyalin tautan JobStreet/Glints dari tabel lama tanpa menghapus tabel atau data lama. Kemudian jalankan `supabase/migrations/20261031_saved_links_last_success_at.sql` untuk menambahkan waktu scrape berhasil terakhir. Kolom/tabel progres scraper lama dipertahankan sebagai data historis, tetapi tidak lagi digunakan aplikasi.
+Jalankan `supabase.sql` terlebih dahulu untuk menyiapkan tabel aplikasi dan migrasi data yang sudah ada. Setelah itu jalankan `supabase/schema.sql` di Supabase SQL Editor untuk membuat `saved_links` serta menambahkan status detail scraper. Migrasi ini menyalin tautan Glints dari tabel lama. Kemudian jalankan migrasi yang tersedia di `supabase/migrations/` sesuai urutan nama, termasuk `20261103_remove_jobstreet_source.sql` untuk menuntaskan pembersihan data sumber lama dan membatasi database ke Glints. Kolom/tabel progres scraper lama dipertahankan sebagai data historis, tetapi tidak lagi digunakan aplikasi.
 
 `TAUFIK_PASSWORD` dan `ALYA_PASSWORD` hanya diperlukan untuk migrasi login awal. `GEMINI_API_KEY` wajib diatur untuk analisis CV; analisis tidak menggunakan pencocokan lokal sebagai pengganti AI. Scraper tidak menggunakan Gemini maupun layanan scraping eksternal.
 
@@ -29,22 +29,21 @@ Navigasi antarhalaman mempertahankan state sementara dalam memori tab. Hasil ana
 
 ## Scraper Glints dan HTML debug
 
-Tambahkan tautan pencarian Glints lewat menu **Kelola tautan**. GitHub Actions membaca tautan aktif Glints dari Supabase, menemukan maksimal 100 tautan detail per pencarian, mengambil detail, lalu menyimpan hasilnya. Tautan JobStreet lama tetap tampil, tetapi tidak diproses; tombol pembaruannya dinonaktifkan, sementara ganti URL dan hapus tetap tersedia. Tombol **Perbarui sekarang** menjalankan scrape di latar belakang; halaman boleh ditinggalkan dan status diperbarui setelah proses selesai. Mengganti URL menghapus lowongan yatim dari URL lama.
+Tambahkan tautan pencarian Glints lewat menu **Kelola tautan**. GitHub Actions membaca tautan aktif Glints dari Supabase, menemukan maksimal 100 tautan detail per pencarian, mengambil detail, lalu menyimpan hasilnya. Tombol **Perbarui sekarang** menjalankan scrape di latar belakang; halaman boleh ditinggalkan dan status diperbarui setelah proses selesai. Mengganti URL menghapus lowongan yatim dari URL lama.
 
 Jalankan `npm run scrape:debug` dengan URL pencarian Glints yang ingin diuji di `.env.local`:
 
 ```env
-DEBUG_JOBSTREET_SEARCH_URL=
 DEBUG_GLINTS_SEARCH_URL=
 ```
 
 Mode debug menyimpan HTML halaman pencarian ke `debug/`, menemukan tautan detail secara otomatis dari halaman itu, lalu menyimpan HTML detail pertama yang ditemukan. Ia juga mencetak deteksi JSON-LD, `__NEXT_DATA__`, serta nama field tanggal. Gunakan hasilnya untuk memeriksa selector dan format data saat struktur situs berubah. Untuk detail, scraper mengutamakan JSON-LD, lalu `__NEXT_DATA__` Glints, kemudian selector CSS yang terkonfirmasi.
 
-Setelah selector diverifikasi, pasang Chromium lokal dengan `npx playwright install chromium`, lalu jalankan `npm run scrape`. Tahap pertama mengumpulkan maksimal 100 tautan melalui infinite scroll Glints, lalu tahap kedua mengambil detail secara berurutan (concurrency 1). Jika Glints mengembalikan HTTP 403/429/503 atau captcha, scraper menghentikan permintaan berikutnya, menyimpan tautan parsial tanpa mengganti data lama, dan menerapkan cooldown minimal tiga jam (atau lebih lama jika ada `Retry-After`). Lowongan lebih dari tujuh hari ditandai kedaluwarsa. Pembersihan otomatis hanya menghapus lowongan Glints berstatus expired/failed yang sudah lebih dari 14 hari dan tidak lagi terkait tautan aktif; baris JobStreet tidak disentuh. Terapkan migrasi `supabase/migrations/20261102_cleanup_old_glints_jobs.sql` sebelum menjalankan versi ini. HTML detail yang gagal didiagnosis disimpan maksimal 5 file di `debug/failed/` per run. GitHub Actions menyimpan folder `debug/` sebagai artifact.
+Setelah selector diverifikasi, pasang Chromium lokal dengan `npx playwright install chromium`, lalu jalankan `npm run scrape`. Tahap pertama mengumpulkan maksimal 100 tautan melalui infinite scroll Glints, lalu tahap kedua mengambil detail secara berurutan (concurrency 1). Jika Glints mengembalikan HTTP 403/429/503 atau captcha, scraper menghentikan permintaan berikutnya, menyimpan tautan parsial tanpa mengganti data lama, dan menerapkan cooldown minimal tiga jam (atau lebih lama jika ada `Retry-After`). Lowongan lebih dari tujuh hari ditandai kedaluwarsa. Pembersihan otomatis menghapus lowongan Glints berstatus expired/failed yang sudah lebih dari 14 hari dan tidak lagi terkait tautan aktif. Terapkan migrasi yang tersedia di `supabase/migrations/` sebelum menjalankan versi ini. HTML detail yang gagal didiagnosis disimpan maksimal 5 file di `debug/failed/` per run. GitHub Actions menyimpan folder `debug/` sebagai artifact.
 
 ## GitHub Actions
 
-Workflow `.github/workflows/scrape.yml` menjalankan Glints setiap hari pukul 12.00 dan 00.00 WIB (cron UTC `05:00` dan `17:00`) dan dapat dijalankan manual lewat **workflow_dispatch**. Cron GitHub Actions dapat terlambat beberapa menit. Pada repository publik, workflow terjadwal dapat dinonaktifkan otomatis setelah 60 hari tanpa aktivitas repository. JobStreet dinonaktifkan; panduan [self-hosted runner](./docs/SELF_HOSTED_RUNNER.md) tidak diperlukan selama hanya Glints yang aktif. Atur repository secrets:
+Workflow `.github/workflows/scrape.yml` menjalankan Glints setiap hari pukul 12.00 dan 00.00 WIB (cron UTC `05:00` dan `17:00`) dan dapat dijalankan manual lewat **workflow_dispatch**. Cron GitHub Actions dapat terlambat beberapa menit. Pada repository publik, workflow terjadwal dapat dinonaktifkan otomatis setelah 60 hari tanpa aktivitas repository. Atur repository secrets:
 
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`

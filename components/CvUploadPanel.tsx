@@ -109,23 +109,8 @@ function formatFileSize(size: number | null) {
   return `${(size / (1024 * 1024)).toFixed(2)} MiB`;
 }
 
-function jobSourceLabel(
-  job:
-    | CvAnalysis["matches"][number]["job"]
-    | { job_url: string; site: string | null },
-) {
-  const site = job.site?.toLocaleLowerCase("id-ID") ?? "";
-  if (
-    site.includes("glint") ||
-    job.job_url.toLocaleLowerCase("id-ID").includes("glints")
-  )
-    return "Glints";
-  if (
-    site.includes("jobstreet") ||
-    job.job_url.toLocaleLowerCase("id-ID").includes("jobstreet")
-  )
-    return "JobStreet";
-  return "Sumber tidak diketahui";
+function jobSourceLabel() {
+  return "Glints";
 }
 
 export default function CvUploadPanel({
@@ -548,7 +533,7 @@ export default function CvUploadPanel({
                           {match.job.location ? ` · ${match.job.location}` : ""}
                         </p>
                         <span className="cv-match-source">
-                          Sumber: {jobSourceLabel(match.job)}
+                          Sumber: {jobSourceLabel()}
                         </span>
                       </div>
                       <strong

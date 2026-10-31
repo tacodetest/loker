@@ -1,4 +1,4 @@
-export type JobSource = "jobstreet" | "glints";
+export type JobSource = "glints";
 export type AppUserId = "taufik" | "alya";
 export type DetailStatus = "pending" | "ok" | "failed" | "expired";
 export type PostedAtSource = "exact" | "estimated" | "unknown";

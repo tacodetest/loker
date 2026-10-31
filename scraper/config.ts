@@ -1,18 +1,10 @@
-import type { JobSource } from "./lib/types";
-
-export const ENABLED_SOURCES: JobSource[] = ["glints"];
 export const DATE_RANGE_DAYS = 7;
 export const MAX_LINKS_PER_SEARCH = 100;
-export const MAX_PAGES_PER_LINK = 4;
 export const DETAIL_PER_RUN = 100;
-export const DETAIL_PER_RUN_JOBSTREET = 30;
 export const MAX_DETAIL_ATTEMPTS = 3;
 export const DELAY_MIN_MS = 5000;
 export const DELAY_MAX_MS = 8000;
-export const JOBSTREET_DELAY_MIN_MS = 15_000;
-export const JOBSTREET_DELAY_MAX_MS = 30_000;
 export const GLINTS_COOLDOWN_MS = 3 * 60 * 60 * 1000;
-export const JOBSTREET_COOLDOWN_MS = 6 * 60 * 60 * 1000;
 export const CONCURRENCY = 1;
 export const DESCRIPTION_MAX_CHARS = 8000;
 export const PAGE_TIMEOUT_MS = 30_000;

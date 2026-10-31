@@ -79,7 +79,7 @@ async function HomeContent() {
                     <div className="job-meta">
                       <span>{job.company || "Perusahaan tidak dicantumkan"}</span>
                       {job.location && <span>{job.location}</span>}
-                      <span className="site-tag">{job.site?.includes("glints") ? "Glints" : "JobStreet"}</span>
+                      <span className="site-tag">Glints</span>
                     </div>
                     {job.salary && <p className="job-salary">{job.salary}</p>}
                     <p className="job-found">Diperbarui {formatDate(job.scraped_at)}</p>

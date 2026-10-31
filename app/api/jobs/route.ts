@@ -19,7 +19,7 @@ export async function GET(req: Request) {
     ? "today"
     : "all";
   const rawSite = search.get("site");
-  const site: JobsSite = rawSite === "jobstreet" || rawSite === "glints" ? rawSite : "all";
+  const site: JobsSite = rawSite === "glints" ? "glints" : "all";
 
   try {
     const result = await getJobsPage({ search: query, page, period, site }, user.id);

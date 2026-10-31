@@ -1,4 +1,3 @@
-import { ENABLED_SOURCES } from "./config";
 import { scraperDb } from "./lib/supabase";
 import type { SavedLink } from "./lib/types";
 
@@ -17,7 +16,7 @@ async function main() {
   const { data, error } = await query.order("created_at", { ascending: true });
   if (error) throw new Error(`Gagal membaca tautan aktif: ${error.message}`);
 
-  const links = (data ?? []).filter((link) => ENABLED_SOURCES.includes(link.source)) as SavedLink[];
+  const links = (data ?? []).filter((link) => link.source === "glints") as SavedLink[];
   const failures: string[] = [];
   let successfulDetails = 0;
   if (!links.length) {

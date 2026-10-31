@@ -13,7 +13,7 @@ export default async function SourcesPage() {
         <div>
           <p className="eyebrow">PENGELOLAAN SUMBER</p>
           <h1>Kelola tautan</h1>
-          <p>Kelola URL Glints dan pantau status scrape otomatis. Tautan JobStreet lama tetap dapat diganti atau dihapus, tetapi tidak diproses.</p>
+          <p>Kelola tautan pencarian Glints dan pantau status scrape otomatis.</p>
         </div>
       </header>
       <AdminScrapePanel initialSources={sources} />

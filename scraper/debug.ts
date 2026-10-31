@@ -2,24 +2,15 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "playwright";
 import { PAGE_TIMEOUT_MS } from "./config";
-import type { JobSource } from "./lib/types";
-import { findJobPostings, sourceFromUrl } from "./lib/utils";
+import { findJobPostings } from "./lib/utils";
 import * as glints from "./sources/glints";
-import * as jobstreet from "./sources/jobstreet";
-
-const sites: JobSource[] = ["jobstreet", "glints"];
-const adapters = { jobstreet, glints };
 
 async function main() {
-  const targets = sites.map((source) => ({
-    source,
-    searchUrl: process.env[`DEBUG_${source.toUpperCase()}_SEARCH_URL`],
-  }));
-  const configuredTargets = targets.filter(
-    (target): target is typeof target & { searchUrl: string } => Boolean(target.searchUrl),
-  );
-  if (!configuredTargets.length) {
-    throw new Error("Isi setidaknya satu URL pencarian di DEBUG_JOBSTREET_SEARCH_URL atau DEBUG_GLINTS_SEARCH_URL.");
+  const searchUrl = process.env.DEBUG_GLINTS_SEARCH_URL;
+  if (!searchUrl) throw new Error("Isi DEBUG_GLINTS_SEARCH_URL dengan URL pencarian Glints.");
+  const url = new URL(searchUrl);
+  if (url.hostname !== "glints.com" && !url.hostname.endsWith(".glints.com")) {
+    throw new Error("URL pencarian debug harus memakai domain Glints.");
   }
 
   const browser = await chromium.launch({ headless: true });
@@ -32,32 +23,17 @@ async function main() {
       timezoneId: "Asia/Jakarta",
       viewport: { width: 1440, height: 900 },
     });
-    for (const { source, searchUrl } of configuredTargets) {
-      if (sourceFromUrl(searchUrl) !== source) {
-        throw new Error(`URL pencarian debug untuk ${source} harus memakai domain situs yang sesuai.`);
-      }
-
-      const listingHtml = await capturePage(page, source, "listing", searchUrl, outputDirectory);
-      const adapter = adapters[source];
-      let candidates = adapter.extractListingLinks(listingHtml, searchUrl);
-      const config = source === "jobstreet" ? jobstreet.jobstreetConfig : glints.glintsConfig;
-      if (!candidates.length && config.listingLinkSelector) {
-        const browserLinks = await page.locator(config.listingLinkSelector).evaluateAll((nodes) =>
-          nodes.map((node) => ({ href: (node as HTMLAnchorElement).href })),
-        );
-        candidates = source === "jobstreet"
-          ? jobstreet.extractListingLinksFromBrowser(browserLinks, searchUrl, listingHtml)
-          : glints.extractListingLinksFromBrowser(browserLinks, searchUrl, glints.extractInitialJobs(listingHtml));
-      }
-
-      const detailUrl = candidates[0]?.job_link;
-      if (!detailUrl) {
-        throw new Error(
-          `Belum menemukan tautan detail di halaman pencarian ${source}. Periksa ${source}-listing.html, lalu konfigurasi listingLinkSelector di scraper/sources/${source}.ts.`,
-        );
-      }
-      await capturePage(page, source, "detail", detailUrl, outputDirectory);
+    const listingHtml = await capturePage(page, "listing", searchUrl, outputDirectory);
+    let candidates = glints.extractListingLinks(listingHtml, searchUrl);
+    if (!candidates.length && glints.glintsConfig.listingLinkSelector) {
+      const browserLinks = await page.locator(glints.glintsConfig.listingLinkSelector).evaluateAll((nodes) =>
+        nodes.map((node) => ({ href: (node as HTMLAnchorElement).href })),
+      );
+      candidates = glints.extractListingLinksFromBrowser(browserLinks, searchUrl, glints.extractInitialJobs(listingHtml));
     }
+    const detailUrl = candidates[0]?.job_link;
+    if (!detailUrl) throw new Error("Belum menemukan tautan detail Glints dari halaman pencarian.");
+    await capturePage(page, "detail", detailUrl, outputDirectory);
   } finally {
     await browser.close();
   }
@@ -65,19 +41,18 @@ async function main() {
 
 async function capturePage(
   page: import("playwright").Page,
-  source: JobSource,
   kind: "listing" | "detail",
   url: string,
   outputDirectory: string,
 ) {
   const response = await page.goto(url, { waitUntil: "domcontentloaded", timeout: PAGE_TIMEOUT_MS });
-  if (!response?.ok()) throw new Error(`Debug ${source} ${kind} gagal dibuka (${response?.status() ?? "tanpa respons"}).`);
+  if (!response?.ok()) throw new Error(`Debug Glints ${kind} gagal dibuka (${response?.status() ?? "tanpa respons"}) di ${url}.`);
   await page.locator("body").waitFor({ state: "visible", timeout: PAGE_TIMEOUT_MS });
   const html = await page.content();
-  const file = path.join(outputDirectory, `${source}-${kind}.html`);
+  const file = path.join(outputDirectory, `glints-${kind}.html`);
   await writeFile(file, html, "utf8");
   const dateFields = [...new Set(html.match(/\b(?:createdAt|datePosted|postedAt|listedAt|dateTimeUtc|updatedAt|created_at|posted_at|updated_at)\b/g) ?? [])];
-  console.info(`[debug] ${source} ${kind}: ${file}`);
+  console.info(`[debug] Glints ${kind}: ${file}`);
   console.info(`[debug] Data JobPosting JSON-LD: ${findJobPostings(html).length > 0}; data __NEXT_DATA__: ${/<script\b[^>]*id=["']__NEXT_DATA__["']/i.test(html)}; field tanggal terdeteksi: ${dateFields.join(", ") || "(tidak ada)"}`);
   return html;
 }

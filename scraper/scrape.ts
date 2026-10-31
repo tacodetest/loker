@@ -52,7 +52,7 @@ async function run() {
   const now = new Date();
   const eligibleLinks: SavedLink[] = [];
   for (const link of links) {
-    const cooldownUntil = getSourceCooldownUntil(link.source, link.last_status, link.last_scraped_at, link.last_error, now);
+    const cooldownUntil = getSourceCooldownUntil(link.last_status, link.last_scraped_at, link.last_error, now);
     if (cooldownUntil) {
       console.info(`[scraper] Tautan dilewati selama cooldown: ${link.url}. ${formatCooldownMessage(cooldownUntil)}`);
       continue;
@@ -73,7 +73,7 @@ async function run() {
     if (sourceRateLimit) {
       limitedLinks.set(
         link.id,
-        createRateLimitMessage(sourceRateLimit.source, sourceRateLimit.status, sourceRateLimit.retryAt),
+        createRateLimitMessage(sourceRateLimit.status, sourceRateLimit.retryAt),
       );
       console.info(`[scraper] Sumber ${link.source} dilewati setelah pembatasan pada run ini: ${link.url}.`);
       continue;
@@ -85,10 +85,10 @@ async function run() {
     } catch (error) {
       if (error instanceof RateLimitedError) {
         sourceRateLimit = error;
-        const message = createRateLimitMessage(error.source, error.status, error.retryAt);
+        const message = createRateLimitMessage(error.status, error.retryAt);
         limitedLinks.set(link.id, message);
         console.warn(
-          `[scraper] Tahap 1 ${error.source} dihentikan di ${link.url} setelah ${error.collectedCount} tautan terkumpul. ${message}`,
+          `[scraper] Tahap 1 Glints dihentikan di ${link.url} setelah ${error.collectedCount} tautan terkumpul. ${message}`,
         );
         continue;
       }
@@ -128,7 +128,7 @@ async function run() {
     if (sourceRateLimit) {
       limitedLinks.set(
         link.id,
-        createRateLimitMessage(sourceRateLimit.source, sourceRateLimit.status, sourceRateLimit.retryAt),
+        createRateLimitMessage(sourceRateLimit.status, sourceRateLimit.retryAt),
       );
     }
   }

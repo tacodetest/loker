@@ -6,19 +6,15 @@ import {
   DELAY_MAX_MS,
   DELAY_MIN_MS,
   DESCRIPTION_MAX_CHARS,
-  JOBSTREET_DELAY_MAX_MS,
-  JOBSTREET_DELAY_MIN_MS,
   MAX_DETAIL_ATTEMPTS,
   MAX_FAILED_HTML_PER_RUN,
   PAGE_TIMEOUT_MS,
 } from "./config";
 import type { JobDetails, JobSource, PendingJob, SavedLink } from "./lib/types";
 import {
-  extractSeekAssignments,
   findJobPostings,
   isBlockedPage,
   parseRelativeDate,
-  parseSeekJson,
   sleepRandom,
 } from "./lib/utils";
 import {
@@ -34,9 +30,7 @@ import {
   RateLimitedError,
 } from "./lib/rate-limit";
 import * as glints from "./sources/glints";
-import * as jobstreet from "./sources/jobstreet";
 
-type SiteAdapter = typeof jobstreet | typeof glints;
 export type LinkDetailSummary = {
   berhasil: number;
   gagal: number;
@@ -44,10 +38,8 @@ export type LinkDetailSummary = {
   dibatasi: boolean;
   retryAt: string | null;
 };
-const adapters: Record<JobSource, SiteAdapter> = { jobstreet, glints };
 let savedFailureHtmlCount = 0;
 
-class BlockedPageError extends Error {}
 class ConfigurationRequiredError extends Error {}
 
 export async function scrapePendingDetails(links: SavedLink[]): Promise<Map<string, LinkDetailSummary>> {
@@ -66,16 +58,15 @@ export async function scrapePendingDetails(links: SavedLink[]): Promise<Map<stri
       viewport: { width: 1440, height: 900 },
     });
     let sourceRateLimited: RateLimitedError | null = null;
-    for (const [jobIndex, job] of jobs.entries()) {
+    for (const job of jobs) {
       if (sourceRateLimited) {
         setLinkLimited(
           summaries.get(job.link_id),
-          createRateLimitMessage(sourceRateLimited.source, sourceRateLimited.status, sourceRateLimited.retryAt),
+          createRateLimitMessage(sourceRateLimited.status, sourceRateLimited.retryAt),
           sourceRateLimited.retryAt,
         );
         continue;
       }
-      let blocked = false;
       let saved = false;
       let limited: RateLimitedError | null = null;
       let lastError = "";
@@ -91,7 +82,7 @@ export async function scrapePendingDetails(links: SavedLink[]): Promise<Map<stri
           if (error instanceof RateLimitedError) {
             limited = error;
             sourceRateLimited = error;
-            lastError = createRateLimitMessage(error.source, error.status, error.retryAt);
+            lastError = createRateLimitMessage(error.status, error.retryAt);
             console.warn(`[scraper] Pembatasan saat membuka detail ${job.job_link}: ${lastError}`);
             break;
           }
@@ -101,10 +92,6 @@ export async function scrapePendingDetails(links: SavedLink[]): Promise<Map<stri
             console.error(`[scraper] Data detail belum lengkap (${attempt + 1}/${remainingAttempts}): ${job.job_link}: ${lastError}`);
           } else {
             console.error(`[scraper] Detail gagal (${attempt + 1}/${remainingAttempts}): ${job.job_link}: ${lastError}`);
-          }
-          if (error instanceof BlockedPageError) {
-            blocked = true;
-            break;
           }
           if (attempt + 1 < remainingAttempts) {
             await new Promise((resolve) => setTimeout(resolve, 1000 * 2 ** attempt));
@@ -125,22 +112,8 @@ export async function scrapePendingDetails(links: SavedLink[]): Promise<Map<stri
           }
         }
       }
-      if (blocked) {
-        console.error(`[scraper] Tahap detail dihentikan setelah terdeteksi captcha atau pemblokiran pada ${job.job_link}.`);
-        for (const pendingJob of jobs.slice(jobIndex + 1)) {
-          const pendingSummary = summaries.get(pendingJob.link_id);
-          if (!pendingSummary) continue;
-          pendingSummary.gagal += 1;
-          pendingSummary.errorPertama ??= `Pemrosesan dihentikan karena halaman diblokir. Data lama dipertahankan. URL: ${pendingJob.job_link}`;
-        }
-        break;
-      }
       if (!limited) {
-        if (job.source === "jobstreet") {
-          await sleepRandom(JOBSTREET_DELAY_MIN_MS, JOBSTREET_DELAY_MAX_MS);
-        } else {
-          await sleepRandom(DELAY_MIN_MS, DELAY_MAX_MS);
-        }
+        await sleepRandom(DELAY_MIN_MS, DELAY_MAX_MS);
       }
     }
   } finally {
@@ -154,13 +127,9 @@ async function loadDetails(page: Page, job: PendingJob): Promise<JobDetails | nu
   if (!response || !response.ok()) {
     const status = response?.status();
     if (response) await saveFailedHtml(job.source, await page.content());
-    if (status !== undefined && isRateLimitStatus(job.source, status)) {
-      throw new RateLimitedError(job.source, status, parseRetryAfter(response?.headers()["retry-after"] ?? null));
+    if (status !== undefined && isRateLimitStatus(status)) {
+      throw new RateLimitedError(status, parseRetryAfter(response?.headers()["retry-after"] ?? null));
     }
-    if (status === 403) {
-      throw new BlockedPageError(`Situs menolak akses detail (HTTP 403) di ${job.job_link}. Data lama dipertahankan.`);
-    }
-
     throw new Error(`Gagal membuka detail (${status ?? "tanpa respons"}) di ${job.job_link}.`);
   }
   await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => undefined);
@@ -168,17 +137,13 @@ async function loadDetails(page: Page, job: PendingJob): Promise<JobDetails | nu
   const html = await page.content();
   if (isBlockedPage(html)) {
     await saveFailedHtml(job.source, html);
-    if (job.source === "glints") {
-      throw new RateLimitedError("glints", 403, null);
-    }
-    throw new BlockedPageError(`Halaman detail mendeteksi captcha atau pemblokiran di ${job.job_link}. Data lama dipertahankan.`);
+    throw new RateLimitedError(403, null);
   }
 
-  const adapter = adapters[job.source];
-  const jsonLdDetails: Partial<JobDetails> = adapter.extractDetailsFromJsonLd(html) ?? {};
-  const nextDataDetails: Partial<JobDetails> = job.source === "glints" ? glints.extractDetailsFromNextData(html) ?? {} : {};
+  const jsonLdDetails: Partial<JobDetails> = glints.extractDetailsFromJsonLd(html) ?? {};
+  const nextDataDetails: Partial<JobDetails> = glints.extractDetailsFromNextData(html) ?? {};
   const existingDetails = mergeDetails(jsonLdDetails, nextDataDetails);
-  const config = job.source === "jobstreet" ? jobstreet.jobstreetConfig : glints.glintsConfig;
+  const config = glints.glintsConfig;
   const { details: selectorDetails, postedAtText } = await readConfirmedSelectors(
     page,
     config.detailSelectors,
@@ -350,8 +315,13 @@ function findStateDate(
 ): { date: string; source: "exact" | "estimated" } | null {
   const roots: unknown[] = [];
   const nextData = html.match(/<script\b[^>]*id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
-  if (nextData) roots.push(parseSeekJson(nextData[1]));
-  for (const assignment of extractSeekAssignments(html)) roots.push(parseSeekJson(assignment));
+  if (nextData) {
+    try {
+      roots.push(JSON.parse(nextData[1]));
+    } catch {
+      roots.push(null);
+    }
+  }
 
   const find = (value: unknown, fields: readonly string[], depth = 0): string | null => {
     if (depth > 30 || value === null || typeof value !== "object") return null;

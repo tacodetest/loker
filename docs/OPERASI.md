@@ -16,4 +16,4 @@
 - **diblokir**: situs mengembalikan 403 atau mendeteksi captcha/pemblokiran. Data lama tetap dipertahankan; jangan mencoba melewati pembatasan.
 - **dibatasi**: Glints mengembalikan 403/429/503 atau captcha. Scraper menghormati `Retry-After`, menghentikan permintaan pada run tersebut, dan menjaga data lama. Tautan dilewati selama minimal tiga jam; permintaan manual dalam masa ini mendapat pemberitahuan, bukan error.
 
-JobStreet saat ini dinonaktifkan dan tidak diproses. Jika Glints berstatus **dibatasi**, tunggu sampai waktu perkiraan pada pesan status sebelum menjalankan ulang. Jangan memicu permintaan tambahan selama pembatasan masih berlaku.
+Jika Glints berstatus **dibatasi**, tunggu sampai waktu perkiraan pada pesan status sebelum menjalankan ulang. Jangan memicu permintaan tambahan selama pembatasan masih berlaku.

@@ -1,12 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { isSourceEnabled } from "@/scraper/lib/enabled-sources";
 
 type SavedSource = {
   id: string;
   url: string;
-  source: "jobstreet" | "glints";
+  source: "glints";
   is_active: boolean;
   last_scraped_at: string | null;
   last_success_at: string | null;
@@ -85,12 +84,7 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
   }
 
   useEffect(() => {
-    const pendingIds = Object.keys(pendingRefreshes).filter(
-      (id) => {
-        const source = sources.find((item) => item.id === id);
-        return source ? isSourceEnabled(source.source) : false;
-      },
-    );
+    const pendingIds = Object.keys(pendingRefreshes);
     if (!pendingIds.length) return;
 
     let checking = false;
@@ -110,12 +104,12 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
           const source = refreshedSources.find((item) => item.id === id);
           if (!source) continue;
           if (source.last_status === "dibatasi") {
-            setNotice(`${source.source === "jobstreet" ? "JobStreet" : "Glints"} sedang dibatasi. ${source.last_error ?? ""}`);
+            setNotice(`Glints sedang dibatasi. ${source.last_error ?? ""}`);
             setNoticeIsNeutral(true);
           } else if (source.last_error) {
-            setError(`${source.source === "jobstreet" ? "JobStreet" : "Glints"} gagal diperbarui: ${source.last_error}`);
+            setError(`Glints gagal diperbarui: ${source.last_error}`);
           } else {
-            setNotice(`${source.source === "jobstreet" ? "JobStreet" : "Glints"} berhasil diperbarui.`);
+            setNotice("Glints berhasil diperbarui.");
             setNoticeIsNeutral(false);
           }
         }
@@ -136,11 +130,6 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
     setError(null);
     setNotice(null);
     setNoticeIsNeutral(false);
-    if (!isSourceEnabled(source.source)) {
-      setNotice("Saat ini hanya Glints yang didukung. Tautan JobStreet tetap tersimpan dan tidak diproses.");
-      setNoticeIsNeutral(true);
-      return;
-    }
     try {
       const result = await readResponse(await fetch("/api/sources", {
         method: "PATCH",
@@ -305,15 +294,11 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
             {sources.map((source) => (
               <li className="saved-link-item" key={source.id}>
                 <div className="saved-link-main">
-                  <strong className="site-tag">{source.source === "jobstreet" ? "JobStreet" : "Glints"}</strong>
-                  {!isSourceEnabled(source.source) && <span className="source-disabled-label">Dinonaktifkan</span>}
+                  <strong className="site-tag">Glints</strong>
                   <a href={source.url} rel="noreferrer" target="_blank">{source.url}</a>
                   <span>{source.last_status ? `Status: ${statusLabel(source.last_status)}` : "Status: menunggu scrape otomatis"}</span>
                   {source.last_status === "diblokir" && (
                     <span>Scrape dihentikan karena akses diblokir atau captcha; data lama tetap dipertahankan.</span>
-                  )}
-                  {!isSourceEnabled(source.source) && (
-                    <span>Tautan tersimpan, tetapi pembaruan JobStreet sedang dinonaktifkan.</span>
                   )}
                   {pendingRefreshes[source.id] !== undefined && (
                     <strong aria-live="polite">Pembaruan sedang berjalan di latar belakang. Anda boleh meninggalkan halaman ini.</strong>
@@ -330,7 +315,7 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
                 <div className="saved-link-actions">
                   <button
                     className="button button-primary"
-                    disabled={loading || !isSourceEnabled(source.source) || pendingRefreshes[source.id] !== undefined}
+                    disabled={loading || pendingRefreshes[source.id] !== undefined}
                     onClick={() => void refreshSource(source)}
                     type="button"
                   >

@@ -7,7 +7,7 @@ create table if not exists public.saved_links (
   id uuid primary key default gen_random_uuid(),
   owner_id text not null check (owner_id in ('taufik', 'alya')),
   url text not null,
-  source text not null check (source in ('jobstreet', 'glints')),
+  source text not null check (source = 'glints'),
   is_active boolean not null default true,
   last_scraped_at timestamptz,
   last_status text,
@@ -43,7 +43,7 @@ begin
     where conname = 'jobs_source_check' and conrelid = 'public.jobs'::regclass
   ) then
     alter table public.jobs add constraint jobs_source_check
-      check (source is null or source in ('jobstreet', 'glints'));
+      check (source is null or source = 'glints');
   end if;
   if not exists (
     select 1 from pg_constraint
@@ -112,10 +112,7 @@ insert into public.saved_links (
 select
   source_row.owner_id,
   source_row.url,
-  case
-    when lower(source_row.url) ~ '(^|[./])glints\.com([/:]|$)' then 'glints'
-    else 'jobstreet'
-  end,
+  'glints',
   source_row.last_scraped_at,
   case
     when source_row.auto_scrape_status = 'success' then 'berhasil diperbarui'
@@ -127,7 +124,7 @@ select
   0,
   source_row.created_at
 from public.sources source_row
-where lower(source_row.url) ~ '(^|[./])(jobstreet\.com(\.(au|hk|my|ph|sg|vn))?|jobstreet\.co\.(id|th|nz)|glints\.com)([/:]|$)'
+where lower(source_row.url) ~ '(^|[./])glints\.com([/:]|$)'
 on conflict (owner_id, url) do nothing;
 
 update public.jobs job
@@ -138,11 +135,7 @@ set
   job_description = coalesce(job.job_description, job.description),
   source = coalesce(
     job.source,
-    case
-      when lower(coalesce(job.site, job.source_url, '')) ~ 'glints\.com' then 'glints'
-      when lower(coalesce(job.site, job.source_url, '')) ~ 'jobstreet\.(com(\.(au|hk|my|ph|sg|vn))?|co\.(id|th|nz))' then 'jobstreet'
-      else saved.source
-    end
+    'glints'
   ),
   link_id = coalesce(job.link_id, saved.id),
   detail_status = case
@@ -180,7 +173,7 @@ begin
     or p_old_url is null or p_old_url = ''
     or p_new_url is null or p_new_url = ''
     or p_old_url = p_new_url
-    or p_new_source is null or p_new_source not in ('jobstreet', 'glints') then
+    or p_new_source is distinct from 'glints' then
     raise exception 'Data URL sumber tidak valid';
   end if;
   if not exists (

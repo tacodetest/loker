@@ -6,7 +6,7 @@ import { db } from "./supabase";
 export type SavedSource = {
   id: string;
   url: string;
-  source: "jobstreet" | "glints";
+  source: "glints";
   is_active: boolean;
   last_scraped_at: string | null;
   last_success_at: string | null;
@@ -21,6 +21,7 @@ export async function getSavedSources(ownerId: AppUserId): Promise<SavedSource[]
   const { data, error } = await supabase.from("saved_links")
     .select("id, url, source, is_active, last_scraped_at, last_success_at, last_status, last_error")
     .eq("owner_id", ownerId)
+    .eq("source", "glints")
     .order("created_at", { ascending: false });
   if (error) {
     console.error("[sources] Gagal memuat tautan:", error.message);

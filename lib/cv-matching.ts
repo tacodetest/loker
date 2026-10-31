@@ -340,7 +340,7 @@ async function evaluateMatches(
 }
 
 export async function analyzeResume(resumeText: string, jobs: JobForMatching[]) {
-  if (!jobs.length) throw new CvAnalysisError("Belum ada lowongan JobStreet aktif dalam 7 hari terakhir.", 404);
+  if (!jobs.length) throw new CvAnalysisError("Belum ada lowongan aktif dalam 7 hari terakhir.", 404);
   const candidateJobs = selectCandidateJobs(resumeText, jobs);
   const result = await evaluateMatches(resumeText, candidateJobs);
   const jobsByUrl = new Map(candidateJobs.map((job) => [job.job_url, job]));
