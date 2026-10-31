@@ -122,10 +122,12 @@ export async function collectGlintsLinksByScroll(
       const loadMore = page.getByRole("button", {
         name: /muat lebih banyak|lihat lebih banyak|load more|show more/i,
       }).first();
-      if (await loadMore.count() && await loadMore.isVisible()) {
+      const hasLoadMore = await loadMore.count() > 0 && await loadMore.isVisible();
+      if (hasLoadMore) {
         await loadMore.click();
       } else {
-        await page.evaluate(() => window.scrollBy(0, Math.max(window.innerHeight * 0.8, 600)));
+        await page.locator(glints.glintsConfig.listingLinkSelector).last()
+          .scrollIntoViewIfNeeded({ timeout: PAGE_TIMEOUT_MS });
       }
 
       await page.waitForFunction(
@@ -135,7 +137,7 @@ export async function collectGlintsLinksByScroll(
             || anchors.some(({ href }) => !previousHrefs.includes(href));
         },
         { selector: glints.glintsConfig.listingLinkSelector, previousHrefs: [...seenAnchorHrefs] },
-        { timeout: 5_000 },
+        { timeout: 10_000 },
       ).catch(() => undefined);
       const loadedAnchors = await readListingAnchors(page, glints.glintsConfig.listingLinkSelector);
       const newAnchors = loadedAnchors.filter(({ href }) => !seenAnchorHrefs.has(href));
@@ -149,6 +151,10 @@ export async function collectGlintsLinksByScroll(
         stopReason = "respons-http-membatasi";
       }
       const html = await page.content();
+      const scrollPosition = await page.evaluate(() => ({
+        y: Math.round(window.scrollY),
+        documentHeight: document.documentElement.scrollHeight,
+      }));
       if (!rateLimited && isBlockedPage(html)) {
         rateLimited = new RateLimitedError(403, null, uniqueLinks.size);
         stopReason = "captcha-atau-pemblokiran";
@@ -158,7 +164,7 @@ export async function collectGlintsLinksByScroll(
         stopReason = "tidak-ada-pertumbuhan-3-kali";
       }
       console.info(
-        `[scraper] Glints scroll ${searchUrl}: iterasi kartu=${loadedAnchors.length}, tautan unik=${uniqueLinks.size}, tanpa-pertumbuhan=${noGrowthCount}.`,
+        `[scraper] Glints scroll ${searchUrl}: iterasi kartu=${loadedAnchors.length}, tautan unik=${uniqueLinks.size}, tanpa-pertumbuhan=${noGrowthCount}, posisi-scroll=${scrollPosition.y}/${scrollPosition.documentHeight}, tombol-muat=${hasLoadMore}.`,
       );
       if (rateLimited) break;
       if (uniqueLinks.size < MAX_LINKS_PER_SEARCH && noGrowthCount < 3) {
