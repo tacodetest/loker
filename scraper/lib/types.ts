@@ -2,6 +2,7 @@ export type JobSource = "jobstreet" | "glints";
 export type AppUserId = "taufik" | "alya";
 export type DetailStatus = "pending" | "ok" | "failed" | "expired";
 export type PostedAtSource = "exact" | "estimated" | "unknown";
+export type LinkStatus = "berhasil" | "sebagian" | "gagal" | "diblokir" | "dibatasi";
 
 export type SavedLink = {
   id: string;
@@ -9,6 +10,10 @@ export type SavedLink = {
   url: string;
   source: JobSource;
   is_active: boolean;
+  last_status: LinkStatus | null;
+  last_scraped_at: string | null;
+  last_success_at: string | null;
+  last_error: string | null;
 };
 
 export type JobLinkCandidate = {

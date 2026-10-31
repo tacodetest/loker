@@ -5,17 +5,25 @@ export const glintsConfig = {
   listingLinkSelector: 'a[aria-label^="Job card title:"]',
   detailSelectors: {
     title: 'h1',
-    company: '[data-testid="company-name"], a[href*="/companies/"]',
-    location: '[data-testid="location"], [data-testid="job-location"]',
-    salary: '[data-testid="salary"], [data-testid="salary-range"]',
-    employmentType: '[data-testid="employment-type"], [data-testid="job-type"]',
-    postedAt: '[data-testid="posted-date"]',
-    description: '[data-testid="job-description"], [data-testid="job-detail-description"]',
   },
   dateFields: ["createdAt", "datePosted", "postedAt"] as const,
   updatedAtFields: ["updatedAt"] as const,
-  relativeDatePattern: /\b(?:hari ini|kemarin|\d+\s*(?:menit|jam|hari|minggu|day|days|week|weeks)\s*(?:yang lalu|lalu|ago)?|30\+\s*(?:hari|days?))\b/i, // TODO: verify against captured Glints detail HTML.
+  relativeDatePattern: /\b(?:hari ini|kemarin|\d+\s*(?:menit|jam|hari|minggu|day|days|week|weeks)\s*(?:yang lalu|lalu|ago)?|30\+\s*(?:hari|days?))\b/i,
   latestFilter: "", // TODO: confirm Glints' supported newest/date filter from the captured HTML.
+};
+
+export type GlintsListingJob = {
+  id: string;
+  createdAt: string | null;
+};
+
+type GlintsNextData = {
+  props?: {
+    pageProps?: {
+      initialData?: { data?: unknown };
+      initialJobs?: { jobsInPage?: unknown };
+    };
+  };
 };
 
 export function normalizeSearchUrl(input: string) {
@@ -24,6 +32,16 @@ export function normalizeSearchUrl(input: string) {
     url.searchParams.set(glintsConfig.latestFilter, "7");
   }
   return url.toString();
+}
+
+export function extractInitialJobs(html: string): GlintsListingJob[] {
+  const jobs = parseNextData(html)?.props?.pageProps?.initialJobs?.jobsInPage;
+  if (!Array.isArray(jobs)) return [];
+  return jobs.flatMap((value) => {
+    const record = asObject(value);
+    if (!record || typeof record.id !== "string") return [];
+    return [{ id: record.id, createdAt: parseDate(record.createdAt) }];
+  });
 }
 
 export function extractListingLinks(html: string, baseUrl: string): JobLinkCandidate[] {
@@ -68,19 +86,99 @@ export function extractDetailsFromJsonLd(html: string): JobDetails | null {
   };
 }
 
-export function extractListingLinksFromBrowser(links: Array<{ href: string; postedAt?: string }>, baseUrl: string) {
+export function extractListingLinksFromBrowser(
+  links: Array<{ href: string }>,
+  baseUrl: string,
+  listedJobs: GlintsListingJob[] = [],
+  includeUnlisted = false,
+) {
   const unique = new Map<string, JobLinkCandidate>();
+  const jobsById = new Map(listedJobs.map((job) => [job.id, job]));
   for (const link of links) {
     const jobLink = normalizeJobUrl(link.href, baseUrl);
-    if (jobLink) unique.set(jobLink, { job_link: jobLink, posted_at_hint: parseDate(link.postedAt) });
+    const id = jobLink?.match(/\/([0-9a-f]{8}-[0-9a-f-]{27,})(?:[/?#]|$)/i)?.[1];
+    if (!jobLink || !id || (!includeUnlisted && !jobsById.has(id))) continue;
+    unique.set(jobLink, { job_link: jobLink, posted_at_hint: jobsById.get(id)?.createdAt ?? null });
   }
   return [...unique.values()];
+}
+
+export function extractDetailsFromNextData(html: string): Partial<JobDetails> | null {
+  const data = asObject(parseNextData(html)?.props?.pageProps?.initialData?.data);
+  if (!data) return null;
+
+  const description = parseDraftDescription(data.descriptionJsonString);
+  const company = asObject(data.company);
+  const location = asObject(data.location);
+  const parents = Array.isArray(location?.parents)
+    ? location.parents.map((value) => text(asObject(value)?.formattedName)).filter((value): value is string => Boolean(value))
+    : [];
+  const locationNames = [text(location?.formattedName), ...parents]
+    .filter((value): value is string => Boolean(value));
+  const salary = asObject(Array.isArray(data.salaries) ? data.salaries[0] : null);
+  const postedAt = parseDate(data.createdAt);
+
+  return {
+    job_title: text(data.title) ?? undefined,
+    company_name: text(company?.displayName) ?? text(company?.name),
+    location: [...new Set(locationNames)].join(", ") || null,
+    salary: formatSalaryFromNextData(salary),
+    employment_type: formatEmploymentType(text(data.type)),
+    posted_at: postedAt,
+    posted_at_source: postedAt ? "exact" : "unknown",
+    job_description: description,
+  };
+}
+
+function parseNextData(html: string): GlintsNextData | null {
+  const match = html.match(/<script\b[^>]*id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
+  if (!match) return null;
+  try {
+    return JSON.parse(match[1]) as GlintsNextData;
+  } catch {
+    return null;
+  }
+}
+
+function parseDraftDescription(value: unknown): string | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    const record = asObject(parsed);
+    if (!Array.isArray(record?.blocks)) return null;
+    const lines = record.blocks.flatMap((block) => {
+      const item = asObject(block);
+      if (typeof item?.text !== "string" || !item.text.trim()) return [];
+      return [typeof item.type === "string" && item.type.includes("list-item")
+        ? `- ${item.text.trim()}`
+        : item.text.trim()];
+    });
+    return cleanText(lines.join("\n")) || null;
+  } catch {
+    return null;
+  }
 }
 
 function parseDate(value: unknown): string | null {
   if (typeof value !== "string" || !value.trim()) return null;
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+function formatEmploymentType(value: string | null): string | null {
+  if (!value) return null;
+  return value.toLowerCase().replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function formatSalaryFromNextData(value: Record<string, unknown> | null): string | null {
+  if (!value) return null;
+  const minimum = numericText(value.minAmount);
+  const maximum = numericText(value.maxAmount);
+  if (!minimum && !maximum) return null;
+  const range = minimum && maximum ? `${minimum}-${maximum}` : minimum ?? maximum;
+  const currency = text(value.CurrencyCode);
+  const frequency = text(value.salaryMode);
+  return [range, currency, frequency?.toLowerCase()].filter(Boolean).join(" ");
 }
 
 function asObject(value: unknown): Record<string, unknown> | null {

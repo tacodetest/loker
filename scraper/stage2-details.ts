@@ -1,27 +1,58 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { chromium, type Page } from "playwright";
-import { DATE_RANGE_DAYS, DELAY_MAX_MS, DELAY_MIN_MS, DETAIL_PER_RUN, DESCRIPTION_MAX_CHARS, MAX_DETAIL_ATTEMPTS, PAGE_TIMEOUT_MS } from "./config";
-import type { JobDetails, JobSource, PendingJob } from "./lib/types";
-import { isBlockedPage, parseRelativeDate, sleepRandom } from "./lib/utils";
+import {
+  DATE_RANGE_DAYS,
+  DELAY_MAX_MS,
+  DELAY_MIN_MS,
+  DESCRIPTION_MAX_CHARS,
+  JOBSTREET_DELAY_MAX_MS,
+  JOBSTREET_DELAY_MIN_MS,
+  MAX_DETAIL_ATTEMPTS,
+  MAX_FAILED_HTML_PER_RUN,
+  PAGE_TIMEOUT_MS,
+} from "./config";
+import type { JobDetails, JobSource, PendingJob, SavedLink } from "./lib/types";
+import {
+  extractSeekAssignments,
+  findJobPostings,
+  isBlockedPage,
+  parseRelativeDate,
+  parseSeekJson,
+  sleepRandom,
+} from "./lib/utils";
 import {
   expireJob,
   getPendingJobs,
   markJobAttempt,
   updateJobDetails,
 } from "./lib/supabase";
+import { createRateLimitMessage, parseRetryAfter, RateLimitedError } from "./lib/rate-limit";
 import * as glints from "./sources/glints";
 import * as jobstreet from "./sources/jobstreet";
 
 type SiteAdapter = typeof jobstreet | typeof glints;
+export type LinkDetailSummary = {
+  berhasil: number;
+  gagal: number;
+  errorPertama: string | null;
+  dibatasi: boolean;
+  retryAt: string | null;
+};
 const adapters: Record<JobSource, SiteAdapter> = { jobstreet, glints };
+let savedFailureHtmlCount = 0;
 
 class BlockedPageError extends Error {}
 class ConfigurationRequiredError extends Error {}
 
-export async function scrapePendingDetails(linkIds: string[]) {
-  const jobs = (await getPendingJobs(linkIds)).slice(0, DETAIL_PER_RUN);
-  const errorsByLink = new Map<string, string>();
-  const browser = await chromium.launch({ headless: true });
+export async function scrapePendingDetails(links: SavedLink[]): Promise<Map<string, LinkDetailSummary>> {
+  const summaries = new Map<string, LinkDetailSummary>(
+    links.map(({ id }) => [id, { berhasil: 0, gagal: 0, errorPertama: null, dibatasi: false, retryAt: null }]),
+  );
+  const jobs = await getPendingJobs(links);
+  if (!jobs.length) return summaries;
 
+  const browser = await chromium.launch({ headless: true });
   try {
     const page = await browser.newPage({
       userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -29,33 +60,43 @@ export async function scrapePendingDetails(linkIds: string[]) {
       timezoneId: "Asia/Jakarta",
       viewport: { width: 1440, height: 900 },
     });
+    let jobstreetRateLimited: RateLimitedError | null = null;
     for (const [jobIndex, job] of jobs.entries()) {
+      if (job.source === "jobstreet" && jobstreetRateLimited) {
+        setLinkLimited(
+          summaries.get(job.link_id),
+          createRateLimitMessage(jobstreetRateLimited.status, jobstreetRateLimited.retryAt),
+          jobstreetRateLimited.retryAt,
+        );
+        continue;
+      }
       let blocked = false;
       let saved = false;
-      let attemptsMade = 0;
+      let limited: RateLimitedError | null = null;
+      let lastError = "";
       const remainingAttempts = MAX_DETAIL_ATTEMPTS - job.detail_attempts;
       for (let attempt = 0; attempt < remainingAttempts; attempt += 1) {
         try {
           const details = await loadDetails(page, job);
-          if (!details) {
-            saved = true;
-            break;
-          }
-          await persistDetails(job, details);
+          if (details) await persistDetails(job, details);
           saved = true;
-          console.info(`[scraper] Detail berhasil: ${job.job_link}`);
+          if (details) console.info(`[scraper] Detail berhasil: ${job.job_link}`);
           break;
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          if (error instanceof ConfigurationRequiredError) {
-            errorsByLink.set(job.link_id, message);
-            console.error(`[scraper] Konfigurasi selector diperlukan untuk ${job.job_link}: ${message}`);
+          if (error instanceof RateLimitedError) {
+            limited = error;
+            jobstreetRateLimited = error;
+            lastError = createRateLimitMessage(error.status, error.retryAt);
+            console.warn(`[scraper] ${lastError}`);
             break;
           }
-          attemptsMade += 1;
-          await markJobAttempt(job, job.detail_attempts + attemptsMade, message);
-          errorsByLink.set(job.link_id, message);
-          console.error(`[scraper] Detail gagal (${attempt + 1}/${remainingAttempts}): ${job.job_link}: ${message}`);
+          lastError = error instanceof Error ? error.message : String(error);
+          await markJobAttempt(job, job.detail_attempts + attempt + 1, lastError);
+          if (error instanceof ConfigurationRequiredError) {
+            console.error(`[scraper] Data detail belum lengkap (${attempt + 1}/${remainingAttempts}): ${job.job_link}: ${lastError}`);
+          } else {
+            console.error(`[scraper] Detail gagal (${attempt + 1}/${remainingAttempts}): ${job.job_link}: ${lastError}`);
+          }
           if (error instanceof BlockedPageError) {
             blocked = true;
             break;
@@ -65,48 +106,91 @@ export async function scrapePendingDetails(linkIds: string[]) {
           }
         }
       }
-      if (!saved && remainingAttempts === 0) {
-        errorsByLink.set(job.link_id, "Batas percobaan detail sudah tercapai.");
+
+      const summary = summaries.get(job.link_id);
+      if (limited) {
+        setLinkLimited(summary, lastError, limited.retryAt);
+      } else if (summary) {
+        if (saved) {
+          summary.berhasil += 1;
+        } else {
+          summary.gagal += 1;
+          if (!summary.errorPertama) {
+            summary.errorPertama = lastError || "Batas percobaan detail sudah tercapai.";
+          }
+        }
       }
       if (blocked) {
-        console.error("[scraper] Tahap detail dihentikan karena terdeteksi captcha/pemblokiran.");
+        console.error("[scraper] Tahap detail dihentikan setelah terdeteksi captcha atau pemblokiran.");
         for (const pendingJob of jobs.slice(jobIndex + 1)) {
-          errorsByLink.set(pendingJob.link_id, "Pemrosesan detail dihentikan setelah captcha atau pemblokiran.");
+          const pendingSummary = summaries.get(pendingJob.link_id);
+          if (!pendingSummary) continue;
+          pendingSummary.gagal += 1;
+          pendingSummary.errorPertama ??= `Pemrosesan dihentikan karena halaman diblokir. Data lama dipertahankan. URL: ${pendingJob.job_link}`;
         }
         break;
       }
-      await sleepRandom(DELAY_MIN_MS, DELAY_MAX_MS);
+      if (!limited) {
+        if (job.source === "jobstreet") {
+          await sleepRandom(JOBSTREET_DELAY_MIN_MS, JOBSTREET_DELAY_MAX_MS);
+        } else {
+          await sleepRandom(DELAY_MIN_MS, DELAY_MAX_MS);
+        }
+      }
     }
   } finally {
     await browser.close();
   }
-  return errorsByLink;
+  return summaries;
 }
 
 async function loadDetails(page: Page, job: PendingJob): Promise<JobDetails | null> {
   const response = await page.goto(job.job_link, { waitUntil: "domcontentloaded", timeout: PAGE_TIMEOUT_MS });
-  if (!response || !response.ok()) throw new Error(`Gagal membuka detail (${response?.status() ?? "tanpa respons"}).`);
+  if (!response || !response.ok()) {
+    const status = response?.status();
+    if (job.source === "jobstreet" && (status === 429 || status === 503)) {
+      throw new RateLimitedError(status, parseRetryAfter(response?.headers()["retry-after"] ?? null));
+    }
+    if (status === 403) {
+      throw new BlockedPageError(`Situs menolak akses detail (HTTP 403) di ${job.job_link}. Data lama dipertahankan.`);
+    }
+
+    throw new Error(`Gagal membuka detail (${status ?? "tanpa respons"}) di ${job.job_link}.`);
+  }
+  await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => undefined);
   await page.locator("body").waitFor({ state: "visible", timeout: PAGE_TIMEOUT_MS });
   const html = await page.content();
-  if (isBlockedPage(html)) throw new BlockedPageError("Halaman mendeteksi captcha atau pemblokiran.");
+  if (isBlockedPage(html)) {
+    throw new BlockedPageError(`Halaman detail mendeteksi captcha atau pemblokiran di ${job.job_link}. Data lama dipertahankan.`);
+  }
 
   const adapter = adapters[job.source];
-  const details: Partial<JobDetails> = adapter.extractDetailsFromJsonLd(html) ?? {};
+  const jsonLdDetails: Partial<JobDetails> = adapter.extractDetailsFromJsonLd(html) ?? {};
+  const nextDataDetails: Partial<JobDetails> = job.source === "glints" ? glints.extractDetailsFromNextData(html) ?? {} : {};
+  const existingDetails = mergeDetails(jsonLdDetails, nextDataDetails);
   const config = job.source === "jobstreet" ? jobstreet.jobstreetConfig : glints.glintsConfig;
   const { details: selectorDetails, postedAtText } = await readConfirmedSelectors(
     page,
     config.detailSelectors,
-    details,
+    existingDetails,
   );
   const merged: JobDetails = {
-    job_title: details.job_title ?? selectorDetails.job_title ?? "",
-    company_name: details.company_name ?? selectorDetails.company_name ?? null,
-    location: details.location ?? selectorDetails.location ?? null,
-    salary: details.salary ?? selectorDetails.salary ?? null,
-    employment_type: details.employment_type ?? selectorDetails.employment_type ?? null,
-    posted_at: details.posted_at ?? null,
-    posted_at_source: details.posted_at_source ?? "unknown",
-    job_description: details.job_description ?? selectorDetails.job_description ?? null,
+    job_title: firstText(jsonLdDetails.job_title, nextDataDetails.job_title, selectorDetails.job_title) ?? "",
+    company_name: firstText(jsonLdDetails.company_name, nextDataDetails.company_name, selectorDetails.company_name),
+    location: firstText(jsonLdDetails.location, nextDataDetails.location, selectorDetails.location),
+    salary: firstText(jsonLdDetails.salary, nextDataDetails.salary, selectorDetails.salary),
+    employment_type: firstText(jsonLdDetails.employment_type, nextDataDetails.employment_type, selectorDetails.employment_type),
+    posted_at: jsonLdDetails.posted_at ?? nextDataDetails.posted_at ?? null,
+    posted_at_source: jsonLdDetails.posted_at
+      ? jsonLdDetails.posted_at_source ?? "exact"
+      : nextDataDetails.posted_at
+        ? nextDataDetails.posted_at_source ?? "exact"
+        : "unknown",
+    job_description: firstText(
+      jsonLdDetails.job_description,
+      nextDataDetails.job_description,
+      selectorDetails.job_description,
+    ),
   };
   if (!merged.posted_at) {
     const stateDate = findStateDate(html, config.dateFields, config.updatedAtFields);
@@ -124,11 +208,22 @@ async function loadDetails(page: Page, job: PendingJob): Promise<JobDetails | nu
     }
   }
   if (!merged.job_title || !merged.job_description) {
+    if (!merged.job_description) {
+      const diagnostics = {
+        jsonLdAda: findJobPostings(html).length > 0,
+        nextDataAda: /<script\b[^>]*id=["']__NEXT_DATA__["']/i.test(html),
+        panjangJsonLd: jsonLdDetails.job_description?.length ?? 0,
+        panjangNextData: nextDataDetails.job_description?.length ?? 0,
+        panjangSelector: selectorDetails.job_description?.length ?? 0,
+      };
+      console.error(`[scraper] Diagnosis deskripsi kosong untuk ${job.job_link}: ${JSON.stringify(diagnostics)}`);
+      await saveFailedHtml(job.source, html);
+    }
     const missing = [
-      !merged.job_title && "job title",
-      !merged.job_description && "job description",
-    ].filter(Boolean).join(" and ");
-    throw new ConfigurationRequiredError(`Detail JSON-LD belum memuat ${missing}; lengkapi selector yang terkonfirmasi di scraper/sources/${job.source}.ts setelah memeriksa HTML debug.`);
+      !merged.job_title && "judul lowongan",
+      !merged.job_description && "deskripsi lowongan",
+    ].filter(Boolean).join(" dan ");
+    throw new ConfigurationRequiredError(`Detail ${missing} tidak ditemukan di ${job.job_link}. Periksa HTML debug dan selector ${job.source}.`);
   }
   merged.job_description = merged.job_description.slice(0, DESCRIPTION_MAX_CHARS);
   if (merged.posted_at && Date.parse(merged.posted_at) < Date.now() - DATE_RANGE_DAYS * 86_400_000) {
@@ -136,6 +231,48 @@ async function loadDetails(page: Page, job: PendingJob): Promise<JobDetails | nu
     return null;
   }
   return merged;
+}
+
+function setLinkLimited(
+  summary: LinkDetailSummary | undefined,
+  message: string,
+  retryAt: Date | null,
+) {
+  if (!summary) return;
+  summary.dibatasi = true;
+  summary.errorPertama ??= message;
+  summary.retryAt ??= retryAt?.toISOString() ?? null;
+}
+
+function mergeDetails(
+  first: Partial<JobDetails>,
+  second: Partial<JobDetails>,
+): Partial<JobDetails> {
+  return {
+    job_title: firstText(first.job_title, second.job_title) ?? undefined,
+    company_name: firstText(first.company_name, second.company_name),
+    location: firstText(first.location, second.location),
+    salary: firstText(first.salary, second.salary),
+    employment_type: firstText(first.employment_type, second.employment_type),
+    posted_at: first.posted_at ?? second.posted_at,
+    posted_at_source: first.posted_at ? first.posted_at_source : second.posted_at_source,
+    job_description: firstText(first.job_description, second.job_description),
+  };
+}
+
+function firstText(...values: Array<string | null | undefined>): string | null {
+  return values.find((value) => typeof value === "string" && value.trim())?.trim() ?? null;
+}
+
+async function saveFailedHtml(source: JobSource, html: string) {
+  if (savedFailureHtmlCount >= MAX_FAILED_HTML_PER_RUN) return;
+  const directory = path.join(process.cwd(), "debug", "failed");
+  await mkdir(directory, { recursive: true });
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const file = path.join(directory, `${source}-${timestamp}-${savedFailureHtmlCount + 1}.html`);
+  await writeFile(file, html, "utf8");
+  savedFailureHtmlCount += 1;
+  console.info(`[scraper] HTML detail gagal disimpan untuk diagnosis: ${file}`);
 }
 
 async function persistDetails(job: PendingJob, details: JobDetails) {
@@ -150,6 +287,7 @@ async function persistDetails(job: PendingJob, details: JobDetails) {
     description: details.job_description,
     job_description: details.job_description,
     posted_time: details.posted_at,
+    posted_at_source: details.posted_at_source,
     detail_status: "ok",
     detail_attempts: job.detail_attempts,
     last_error: null,
@@ -160,20 +298,20 @@ async function persistDetails(job: PendingJob, details: JobDetails) {
 async function readConfirmedSelectors(
   page: Page,
   selectors: Record<string, string>,
-  jsonLdDetails: Partial<JobDetails>,
+  existing: Partial<JobDetails>,
 ): Promise<{ details: Partial<JobDetails>; postedAtText: string | null }> {
-  const requiredByJsonLd: Record<string, boolean> = {
-    title: Boolean(jsonLdDetails.job_title),
-    company: Boolean(jsonLdDetails.company_name),
-    location: Boolean(jsonLdDetails.location),
-    salary: Boolean(jsonLdDetails.salary),
-    employmentType: Boolean(jsonLdDetails.employment_type),
-    description: Boolean(jsonLdDetails.job_description),
+  const existingValues: Record<string, boolean> = {
+    title: Boolean(existing.job_title),
+    company: Boolean(existing.company_name),
+    location: Boolean(existing.location),
+    salary: Boolean(existing.salary),
+    employmentType: Boolean(existing.employment_type),
+    description: Boolean(existing.job_description),
   };
   const fields: Record<string, string | null> = {};
   const bodyText = await page.locator("body").innerText({ timeout: 5_000 }).catch(() => "");
   for (const [field, selector] of Object.entries(selectors)) {
-    if (!selector || requiredByJsonLd[field]) continue;
+    if (!selector || existingValues[field]) continue;
     const locator = page.locator(selector).first();
     fields[field] = await locator.count() ? (await locator.innerText({ timeout: 5_000 }))?.trim() ?? null : null;
   }
@@ -202,14 +340,11 @@ function findStateDate(
 ): { date: string; source: "exact" | "estimated" } | null {
   const roots: unknown[] = [];
   const nextData = html.match(/<script\b[^>]*id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
-  if (nextData) roots.push(parseJson(nextData[1]));
-
-  for (const assignment of extractSeekAssignments(html)) {
-    roots.push(parseJson(assignment));
-  }
+  if (nextData) roots.push(parseSeekJson(nextData[1]));
+  for (const assignment of extractSeekAssignments(html)) roots.push(parseSeekJson(assignment));
 
   const find = (value: unknown, fields: readonly string[], depth = 0): string | null => {
-    if (depth > 20 || value === null || typeof value !== "object") return null;
+    if (depth > 30 || value === null || typeof value !== "object") return null;
     if (Array.isArray(value)) {
       for (const child of value) {
         const result = find(child, fields, depth + 1);
@@ -243,47 +378,4 @@ function findStateDate(
     if (estimated) return { date: estimated, source: "estimated" };
   }
   return null;
-}
-
-function extractSeekAssignments(html: string): string[] {
-  const assignments: string[] = [];
-  const pattern = /window\.SEEK_(?:REDUX_DATA|APP_DATA)\s*=\s*/gi;
-  for (const match of html.matchAll(pattern)) {
-    const start = match.index + match[0].length;
-    if (html[start] !== "{") continue;
-    let depth = 0;
-    let quote: "\"" | "'" | null = null;
-    let escaped = false;
-    for (let index = start; index < html.length; index += 1) {
-      const char = html[index];
-      if (quote) {
-        if (escaped) {
-          escaped = false;
-        } else if (char === "\\") {
-          escaped = true;
-        } else if (char === quote) {
-          quote = null;
-        }
-      } else if (char === "\"" || char === "'") {
-        quote = char;
-      } else if (char === "{") {
-        depth += 1;
-      } else if (char === "}") {
-        depth -= 1;
-        if (depth === 0) {
-          assignments.push(html.slice(start, index + 1));
-          break;
-        }
-      }
-    }
-  }
-  return assignments;
-}
-
-function parseJson(value: string): unknown {
-  try {
-    return JSON.parse(value);
-  } catch {
-    return null;
-  }
 }

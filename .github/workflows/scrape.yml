@@ -1,28 +1,37 @@
-name: Scrape job listings
+name: Scrape lowongan kerja
 
 on:
-  # 05:00 and 17:00 UTC are 12:00 and 00:00 in Asia/Jakarta (UTC+7).
   schedule:
     - cron: "0 5,17 * * *"
   workflow_dispatch:
     inputs:
       owner_id:
-        description: Optional owner to scrape
+        description: Username pemilik tautan yang akan diproses (opsional)
         required: false
         type: string
       source_url:
-        description: Optional search URL to scrape immediately
+        description: URL pencarian yang akan diproses segera (opsional)
         required: false
         type: string
+      source:
+        description: Sumber yang akan diproses jika URL tidak diberikan
+        required: true
+        type: choice
+        options:
+          - all
+          - glints
+          - jobstreet
+        default: all
 
-concurrency:
-  group: job-scraper
-  cancel-in-progress: false
+permissions:
+  contents: read
 
 jobs:
-  scrape:
+  prep:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    outputs:
+      run_glints: ${{ steps.sources.outputs.run_glints }}
+      run_jobstreet: ${{ steps.sources.outputs.run_jobstreet }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -30,16 +39,93 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Cache Playwright Chromium
+      - name: Tentukan sumber scrape
+        id: sources
+        run: node --import tsx scraper/resolve-sources.ts
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_SOURCE: ${{ inputs.source }}
+          INPUT_SOURCE_URL: ${{ inputs.source_url }}
+
+  scrape-glints:
+    needs: prep
+    if: needs.prep.outputs.run_glints == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: scrape-glints
+      cancel-in-progress: false
+    env:
+      SCRAPE_SOURCE: glints
+      SCRAPE_OWNER_ID: ${{ inputs.owner_id }}
+      SCRAPE_SOURCE_URL: ${{ inputs.source_url }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Simpan cache Chromium Playwright
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
           key: playwright-chromium-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-      - run: npx playwright install --with-deps chromium
-      - name: Scrape listings and save to Supabase
+      - name: Pasang Chromium Playwright
+        run: npx playwright install --with-deps chromium
+      - name: Ambil lowongan Glints
         run: npm run scrape
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          SCRAPE_OWNER_ID: ${{ inputs.owner_id }}
-          SCRAPE_SOURCE_URL: ${{ inputs.source_url }}
+      - name: Unggah HTML debug Glints
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: html-debug-glints-${{ github.run_id }}-${{ github.run_attempt }}
+          path: debug/
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Verifikasi data Glints
+        if: always()
+        run: npm run verify:scrape
+
+  scrape-jobstreet:
+    needs: prep
+    if: vars.SCRAPER_RUNNER != '' && needs.prep.outputs.run_jobstreet == 'true'
+    runs-on: ${{ vars.SCRAPER_RUNNER }}
+    timeout-minutes: 45
+    concurrency:
+      group: scrape-jobstreet
+      cancel-in-progress: false
+    env:
+      SCRAPE_SOURCE: jobstreet
+      SCRAPE_OWNER_ID: ${{ inputs.owner_id }}
+      SCRAPE_SOURCE_URL: ${{ inputs.source_url }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Pasang Chromium Playwright di Windows
+        if: runner.os == 'Windows'
+        run: npx playwright install chromium
+      - name: Pasang Chromium Playwright di Linux
+        if: runner.os == 'Linux'
+        run: npx playwright install --with-deps chromium
+      - name: Ambil lowongan JobStreet
+        run: npm run scrape
+      - name: Unggah HTML debug JobStreet
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: html-debug-jobstreet-${{ github.run_id }}-${{ github.run_attempt }}
+          path: debug/
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Verifikasi data JobStreet
+        if: always()
+        run: npm run verify:scrape

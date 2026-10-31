@@ -7,6 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "typecheck:scraper": "tsc --noEmit -p scraper/tsconfig.json",
+    "verify:scrape": "node --env-file-if-exists=.env.local --import tsx scraper/verify.ts",
     "scrape": "node --env-file-if-exists=.env.local --import tsx scraper/scrape.ts",
     "scrape:debug": "node --env-file-if-exists=.env.local --import tsx scraper/debug.ts",
     "test:scraper": "node --import tsx --test scraper/lib/utils.test.ts"

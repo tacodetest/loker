@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
-import { DETAIL_PER_RUN, MAX_DETAIL_ATTEMPTS } from "../config";
-import type { JobLinkCandidate, JobSource, PendingJob, SavedLink } from "./types";
+import { DETAIL_PER_RUN, DETAIL_PER_RUN_JOBSTREET, MAX_DETAIL_ATTEMPTS } from "../config";
+import type { JobLinkCandidate, JobSource, LinkStatus, PendingJob, SavedLink } from "./types";
 import { normalizeJobUrl, sourceFromUrl } from "./utils";
 
 const resilientFetch: typeof fetch = async (input, init) => {
@@ -21,28 +21,33 @@ const resilientFetch: typeof fetch = async (input, init) => {
 export function scraperDb() {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) throw new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required.");
+  if (!url || !key) throw new Error("SUPABASE_URL dan SUPABASE_SERVICE_ROLE_KEY wajib diatur.");
   return createClient(url, key, { auth: { persistSession: false }, global: { fetch: resilientFetch } });
 }
 
-export async function getSavedLinks(ownerId?: string, sourceUrl?: string): Promise<SavedLink[]> {
+export async function getSavedLinks(
+  ownerId?: string,
+  sourceUrl?: string,
+  source?: JobSource,
+): Promise<SavedLink[]> {
   let query = scraperDb().from("saved_links")
-    .select("id, owner_id, url, source, is_active")
+    .select("id, owner_id, url, source, is_active, last_status, last_scraped_at, last_error")
     .eq("is_active", true);
   if (ownerId) query = query.eq("owner_id", ownerId);
   if (sourceUrl) query = query.eq("url", sourceUrl);
+  if (source) query = query.eq("source", source);
   const { data, error } = await query.order("created_at", { ascending: true });
-  if (error) throw new Error(`Could not load saved links: ${error.message}`);
+  if (error) throw new Error(`Gagal memuat tautan tersimpan: ${error.message}`);
   const links = (data ?? []) as SavedLink[];
   const invalid = links.find((link) => sourceFromUrl(link.url) !== link.source);
-  if (invalid) throw new Error(`Saved link source does not match its URL: ${invalid.url}`);
+  if (invalid) throw new Error(`Situs tautan tidak sesuai dengan URL: ${invalid.url}`);
   return links;
 }
 
 export async function upsertJobLinks(link: SavedLink, candidates: JobLinkCandidate[]) {
   const jobs = candidates.map(({ job_link, posted_at_hint }) => {
     const canonicalUrl = normalizeJobUrl(job_link, link.url);
-    if (!canonicalUrl) throw new Error(`Invalid job URL: ${job_link}`);
+    if (!canonicalUrl) throw new Error(`URL lowongan tidak valid: ${job_link}`);
     return {
       owner_id: link.owner_id,
       link_id: link.id,
@@ -64,54 +69,72 @@ export async function upsertJobLinks(link: SavedLink, candidates: JobLinkCandida
     { owner_id: link.owner_id, url: link.url },
     { onConflict: "owner_id,url", ignoreDuplicates: true },
   );
-  if (sourceError) throw new Error(`Could not prepare legacy source record: ${sourceError.message}`);
+  if (sourceError) throw new Error(`Gagal menyiapkan sumber lama: ${sourceError.message}`);
 
   const { data, error } = await supabase.from("jobs")
     .upsert(jobs, { onConflict: "owner_id,job_url", ignoreDuplicates: true })
     .select("job_url");
-  if (error) throw new Error(`Could not save discovered links for ${link.url}: ${error.message}`);
+  if (error) throw new Error(`Gagal menyimpan tautan lowongan dari ${link.url}: ${error.message}`);
 
   const { error: seenError } = await supabase.from("jobs")
     .update({ last_seen_at: new Date().toISOString() })
     .eq("owner_id", link.owner_id)
     .in("job_url", jobs.map((job) => job.job_url));
-  if (seenError) throw new Error(`Could not update last-seen timestamps: ${seenError.message}`);
+  if (seenError) throw new Error(`Gagal memperbarui waktu terakhir terlihat: ${seenError.message}`);
   const { error: relationError } = await supabase.from("job_sources").upsert(
     jobs.map((job) => ({ owner_id: link.owner_id, source_url: link.url, job_url: job.job_url })),
     { onConflict: "owner_id,source_url,job_url", ignoreDuplicates: true },
   );
-  if (relationError) throw new Error(`Could not link jobs to saved search: ${relationError.message}`);
+  if (relationError) throw new Error(`Gagal menghubungkan lowongan ke pencarian: ${relationError.message}`);
   return data?.length ?? jobs.length;
 }
 
-export async function getPendingJobs(linkIds: string[]): Promise<PendingJob[]> {
-  if (!linkIds.length) return [];
-  const { data, error } = await scraperDb().from("jobs")
-    .select("job_link, link_id, owner_id, source, detail_attempts, posted_at_hint")
-    .eq("detail_status", "pending")
-    .not("link_id", "is", null)
-    .in("link_id", linkIds)
-    .in("source", ["jobstreet", "glints"])
-    .order("last_seen_at", { ascending: false })
-    .limit(DETAIL_PER_RUN);
-  if (error) throw new Error(`Could not load pending details: ${error.message}`);
-  return (data ?? []) as PendingJob[];
+export async function getPendingJobs(links: SavedLink[]): Promise<PendingJob[]> {
+  if (!links.length) return [];
+  const jobs: PendingJob[] = [];
+  for (const link of links) {
+    const { data, error } = await scraperDb().from("jobs")
+      .select("job_link, link_id, owner_id, source, detail_attempts, posted_at_hint")
+      .eq("detail_status", "pending")
+      .eq("link_id", link.id)
+      .in("source", ["jobstreet", "glints"])
+      .order("last_seen_at", { ascending: false })
+      .limit(link.source === "jobstreet" ? DETAIL_PER_RUN_JOBSTREET : DETAIL_PER_RUN);
+    if (error) throw new Error(`Gagal memuat detail untuk tautan ${link.id}: ${error.message}`);
+    jobs.push(...(data ?? []) as PendingJob[]);
+  }
+  return jobs;
 }
 
-export async function setLinkStatus(link: SavedLink, status: string, errorText: string | null) {
+export async function setLinkStatus(
+  link: SavedLink,
+  status: LinkStatus,
+  errorText: string | null,
+  hasSuccessfulDetail: boolean,
+) {
   const relationCount = await scraperDb().from("job_sources")
     .select("job_url", { count: "exact", head: true })
     .eq("owner_id", link.owner_id).eq("source_url", link.url);
-  if (relationCount.error) throw new Error(`Could not count linked jobs: ${relationCount.error.message}`);
+  if (relationCount.error) throw new Error(`Gagal menghitung lowongan terhubung: ${relationCount.error.message}`);
 
   const now = new Date().toISOString();
-  const { error } = await scraperDb().from("saved_links").update({
+  const updates: {
+    last_scraped_at: string;
+    last_status: LinkStatus;
+    last_error: string | null;
+    jobs_count: number;
+    last_success_at?: string;
+  } = {
     last_scraped_at: now,
     last_status: status,
     last_error: errorText,
     jobs_count: relationCount.count ?? 0,
-  }).eq("id", link.id);
-  if (error) throw new Error(`Could not update saved link status: ${error.message}`);
+  };
+  if (status === "berhasil" || hasSuccessfulDetail) {
+    updates.last_success_at = now;
+  }
+  const { error } = await scraperDb().from("saved_links").update(updates).eq("id", link.id);
+  if (error) throw new Error(`Gagal memperbarui status tautan: ${error.message}`);
 }
 
 export async function updateJobDetails(
@@ -121,7 +144,7 @@ export async function updateJobDetails(
   const { error } = await scraperDb().from("jobs").update(fields)
     .eq("owner_id", job.owner_id)
     .eq("job_url", job.job_link);
-  if (error) throw new Error(`Could not save job details for ${job.job_link}: ${error.message}`);
+  if (error) throw new Error(`Gagal menyimpan detail lowongan ${job.job_link}: ${error.message}`);
 }
 
 export async function markJobAttempt(
@@ -134,7 +157,7 @@ export async function markJobAttempt(
     detail_status: attempts >= MAX_DETAIL_ATTEMPTS ? "failed" : "pending",
     last_error: errorText.slice(0, 500),
   }).eq("owner_id", job.owner_id).eq("job_url", job.job_link);
-  if (error) throw new Error(`Could not record failed detail attempt: ${error.message}`);
+  if (error) throw new Error(`Gagal mencatat percobaan detail: ${error.message}`);
 }
 
 export async function expireJob(job: PendingJob, errorText: string) {
@@ -142,7 +165,7 @@ export async function expireJob(job: PendingJob, errorText: string) {
     detail_status: "expired",
     last_error: errorText,
   }).eq("owner_id", job.owner_id).eq("job_url", job.job_link);
-  if (error) throw new Error(`Could not expire job: ${error.message}`);
+  if (error) throw new Error(`Gagal menandai lowongan kedaluwarsa: ${error.message}`);
 }
 
 export async function replaceSourceJobs(link: SavedLink, jobUrls: string[]) {
@@ -151,7 +174,7 @@ export async function replaceSourceJobs(link: SavedLink, jobUrls: string[]) {
     p_source_url: link.url,
     p_job_urls: jobUrls,
   });
-  if (error) throw new Error(`Could not replace stale jobs for ${link.url}: ${error.message}`);
+  if (error) throw new Error(`Gagal memperbarui lowongan usang dari ${link.url}: ${error.message}`);
 }
 
 export type { JobSource };

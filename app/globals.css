@@ -372,6 +372,7 @@ a { color: inherit; }
 .form-error, .form-success { margin: 10px 0 0; font-size: .78rem; line-height: 1.5; overflow-wrap: anywhere; }
 .form-error { color: var(--red); }
 .form-success { color: #17845d; }
+.form-neutral { color: var(--muted); }
 .dev-tools { grid-column: 1; padding: 13px 15px; border: 1px dashed #cbd6e5; border-radius: 12px; background: #fff; color: var(--muted); font-size: .77rem; }
 .dev-tools summary { color: #52647e; font-weight: 700; cursor: pointer; }
 .dev-tools p { margin: 9px 0; }

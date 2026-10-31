@@ -9,6 +9,7 @@ export type SavedSource = {
   source: "jobstreet" | "glints";
   is_active: boolean;
   last_scraped_at: string | null;
+  last_success_at: string | null;
   last_status: string | null;
   last_error: string | null;
   job_count: number;
@@ -18,7 +19,7 @@ export async function getSavedSources(ownerId: AppUserId): Promise<SavedSource[]
   await connection();
   const supabase = db();
   const { data, error } = await supabase.from("saved_links")
-    .select("id, url, source, is_active, last_scraped_at, last_status, last_error")
+    .select("id, url, source, is_active, last_scraped_at, last_success_at, last_status, last_error")
     .eq("owner_id", ownerId)
     .order("created_at", { ascending: false });
   if (error) {

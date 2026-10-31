@@ -1,5 +1,5 @@
 import type { JobDetails, JobLinkCandidate } from "../lib/types";
-import { cleanText, findJobPostings, normalizeJobUrl } from "../lib/utils";
+import { cleanText, findJobPostings, findSeekListedAtById, normalizeJobUrl } from "../lib/utils";
 
 export const jobstreetConfig = {
   listingLinkSelector: 'a[data-testid="job-card-title"]',
@@ -12,9 +12,9 @@ export const jobstreetConfig = {
     postedAt: 'span:has-text("Diposting")',
     description: '[data-automation="jobAdDetails"]',
   },
-  dateFields: ["createdAt", "datePosted", "postedAt"] as const,
+  dateFields: ["createdAt", "datePosted", "postedAt", "listedAt", "dateTimeUtc"] as const,
   updatedAtFields: ["updatedAt"] as const,
-  relativeDatePattern: /\b(?:hari ini|kemarin|\d+\s*(?:menit|jam|hari|minggu|day|days|week|weeks)\s*(?:yang lalu|lalu|ago)?|30\+\s*(?:hari|days?))\b/i, // TODO: verify against captured JobStreet detail HTML.
+  relativeDatePattern: /\b(?:hari ini|kemarin|\d+\s*(?:menit|jam|hari|minggu|day|days|week|weeks)\s*(?:yang lalu|lalu|ago)?|30\+\s*(?:hari|days?))\b/i,
 };
 
 export function normalizeSearchUrl(input: string, days: number) {
@@ -36,6 +36,25 @@ export function extractListingLinks(html: string, baseUrl: string): JobLinkCandi
     if (url) urls.set(url, { job_link: url, posted_at_hint: parseDate(job.datePosted) });
   }
   return [...urls.values()];
+}
+
+export function extractListingLinksFromBrowser(
+  links: Array<{ href: string; postedAt?: string }>,
+  baseUrl: string,
+  html: string,
+) {
+  const listedAtById = findSeekListedAtById(html);
+  const unique = new Map<string, JobLinkCandidate>();
+  for (const link of links) {
+    const jobLink = normalizeJobUrl(link.href, baseUrl);
+    if (!jobLink) continue;
+    const jobId = jobLink.match(/\/job\/(\d+)(?:[/?#]|$)/i)?.[1];
+    unique.set(jobLink, {
+      job_link: jobLink,
+      posted_at_hint: parseDate(link.postedAt) ?? (jobId ? listedAtById.get(jobId) ?? null : null),
+    });
+  }
+  return [...unique.values()];
 }
 
 export function extractDetailsFromJsonLd(html: string): JobDetails | null {
@@ -63,15 +82,6 @@ export function extractDetailsFromJsonLd(html: string): JobDetails | null {
     posted_at_source: postedAt ? "exact" : "unknown",
     job_description: description,
   };
-}
-
-export function extractListingLinksFromBrowser(links: Array<{ href: string; postedAt?: string }>, baseUrl: string) {
-  const unique = new Map<string, JobLinkCandidate>();
-  for (const link of links) {
-    const jobLink = normalizeJobUrl(link.href, baseUrl);
-    if (jobLink) unique.set(jobLink, { job_link: jobLink, posted_at_hint: parseDate(link.postedAt) });
-  }
-  return [...unique.values()];
 }
 
 function parseDate(value: unknown): string | null {

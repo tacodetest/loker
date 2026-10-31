@@ -8,6 +8,7 @@ type SavedSource = {
   source: "jobstreet" | "glints";
   is_active: boolean;
   last_scraped_at: string | null;
+  last_success_at: string | null;
   last_status: string | null;
   last_error: string | null;
   job_count: number;
@@ -32,6 +33,15 @@ function formatUpdatedAt(value: string | null) {
   }).format(new Date(value));
 }
 
+function statusLabel(status: string | null) {
+  if (status === "berhasil") return "Berhasil";
+  if (status === "sebagian") return "Sebagian berhasil";
+  if (status === "gagal") return "Gagal";
+  if (status === "diblokir") return "Diblokir";
+  if (status === "dibatasi") return "Dibatasi sementara";
+  return status;
+}
+
 export default function AdminScrapePanel({ initialSources }: { initialSources: SavedSource[] }) {
   const [sources, setSources] = useState(initialSources);
   const [sourceUrl, setSourceUrl] = useState("");
@@ -41,6 +51,7 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
   const [pendingRefreshes, setPendingRefreshes] = useState<Record<string, string | null>>({});
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [noticeIsNeutral, setNoticeIsNeutral] = useState(false);
   const [dialog, setDialog] = useState<{ variant: "success" | "error" | "confirm"; title: string; message: string } | null>(null);
   const [pendingDelete, setPendingDelete] = useState<SavedSource | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -92,10 +103,14 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
         for (const id of completed) {
           const source = refreshedSources.find((item) => item.id === id);
           if (!source) continue;
-          if (source.last_error) {
+          if (source.last_status === "dibatasi") {
+            setNotice(`${source.source === "jobstreet" ? "JobStreet" : "Glints"} sedang dibatasi. ${source.last_error ?? ""}`);
+            setNoticeIsNeutral(true);
+          } else if (source.last_error) {
             setError(`${source.source === "jobstreet" ? "JobStreet" : "Glints"} gagal diperbarui: ${source.last_error}`);
           } else {
             setNotice(`${source.source === "jobstreet" ? "JobStreet" : "Glints"} berhasil diperbarui.`);
+            setNoticeIsNeutral(false);
           }
         }
         setPendingRefreshes((current) => {
@@ -114,12 +129,19 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
   async function refreshSource(source: SavedSource) {
     setError(null);
     setNotice(null);
+    setNoticeIsNeutral(false);
     try {
-      await readResponse(await fetch("/api/sources", {
+      const result = await readResponse(await fetch("/api/sources", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: source.url }),
       }));
+      if (result.skipped === true) {
+        setNotice(typeof result.message === "string" ? result.message : "Tautan masih dalam masa jeda.");
+        setNoticeIsNeutral(true);
+        await refreshFromDatabase();
+        return;
+      }
       setPendingRefreshes((current) => ({
         ...current,
         [source.id]: source.last_scraped_at,
@@ -135,6 +157,7 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
     setLoading(true);
     setError(null);
     setNotice(null);
+    setNoticeIsNeutral(false);
     try {
       const result = await readResponse(await fetch("/api/sources", {
         method: "POST",
@@ -168,6 +191,7 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
     setLoading(true);
     setError(null);
     setNotice(null);
+    setNoticeIsNeutral(false);
     try {
       await readResponse(await fetch("/api/sources", {
         method: "PUT",
@@ -208,6 +232,7 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
     setLoading(true);
     setError(null);
     setNotice(null);
+    setNoticeIsNeutral(false);
     try {
       await readResponse(await fetch(`/api/sources?url=${encodeURIComponent(pendingDelete.url)}`, { method: "DELETE" }));
       const message = "Tautan dan data yang tidak digunakan sumber lain berhasil dihapus.";
@@ -257,7 +282,7 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
           <button className="button button-primary" disabled={loading} type="submit">{loading ? "Menyimpan..." : "Simpan tautan"}</button>
         </form>
         {error && <p aria-live="polite" className="form-error">{error}</p>}
-        {notice && <p aria-live="polite" className="form-success">{notice}</p>}
+        {notice && <p aria-live="polite" className={noticeIsNeutral ? "form-neutral" : "form-success"}>{notice}</p>}
       </section>
 
       <section aria-labelledby="saved-links-heading" className="content-card">
@@ -271,13 +296,21 @@ export default function AdminScrapePanel({ initialSources }: { initialSources: S
                 <div className="saved-link-main">
                   <strong className="site-tag">{source.source === "jobstreet" ? "JobStreet" : "Glints"}</strong>
                   <a href={source.url} rel="noreferrer" target="_blank">{source.url}</a>
-                  <span>{source.last_status ? `Status: ${source.last_status}` : "Status: menunggu scrape otomatis"}</span>
-                  {pendingRefreshes[source.id] !== undefined && (
-                    <span aria-live="polite">Pembaruan sedang berjalan di latar belakang. Anda boleh meninggalkan halaman ini.</span>
+                  <span>{source.last_status ? `Status: ${statusLabel(source.last_status)}` : "Status: menunggu scrape otomatis"}</span>
+                  {source.last_status === "diblokir" && (
+                    <span>Scrape dihentikan karena akses diblokir atau captcha; data lama tetap dipertahankan.</span>
                   )}
-                  {source.last_error && <span className="form-error">{source.last_error}</span>}
+                  {pendingRefreshes[source.id] !== undefined && (
+                    <strong aria-live="polite">Pembaruan sedang berjalan di latar belakang. Anda boleh meninggalkan halaman ini.</strong>
+                  )}
+                  {source.last_error && (
+                    <span className={["sebagian", "dibatasi"].includes(source.last_status ?? "") ? undefined : "form-error"}>
+                      {source.last_error}
+                    </span>
+                  )}
                   <span>{source.job_count} lowongan terhubung</span>
-                  <small>Diperbarui: {formatUpdatedAt(source.last_scraped_at)}</small>
+                  <small>Percobaan terakhir: {formatUpdatedAt(source.last_scraped_at)}</small>
+                  <small>Berhasil terakhir: {formatUpdatedAt(source.last_success_at)}</small>
                 </div>
                 <div className="saved-link-actions">
                   <button

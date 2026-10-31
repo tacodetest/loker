@@ -45,7 +45,9 @@ async function main() {
         const browserLinks = await page.locator(config.listingLinkSelector).evaluateAll((nodes) =>
           nodes.map((node) => ({ href: (node as HTMLAnchorElement).href })),
         );
-        candidates = adapter.extractListingLinksFromBrowser(browserLinks, searchUrl);
+        candidates = source === "jobstreet"
+          ? jobstreet.extractListingLinksFromBrowser(browserLinks, searchUrl, listingHtml)
+          : glints.extractListingLinksFromBrowser(browserLinks, searchUrl, glints.extractInitialJobs(listingHtml));
       }
 
       const detailUrl = candidates[0]?.job_link;
@@ -74,9 +76,9 @@ async function capturePage(
   const html = await page.content();
   const file = path.join(outputDirectory, `${source}-${kind}.html`);
   await writeFile(file, html, "utf8");
-  const dateFields = [...new Set(html.match(/\b(?:createdAt|datePosted|postedAt|updatedAt|created_at|posted_at|updated_at)\b/g) ?? [])];
+  const dateFields = [...new Set(html.match(/\b(?:createdAt|datePosted|postedAt|listedAt|dateTimeUtc|updatedAt|created_at|posted_at|updated_at)\b/g) ?? [])];
   console.info(`[debug] ${source} ${kind}: ${file}`);
-  console.info(`[debug] JobPosting JSON-LD: ${findJobPostings(html).length > 0}; __NEXT_DATA__: ${/<script\b[^>]*id=["']__NEXT_DATA__["']/i.test(html)}; field tanggal terdeteksi: ${dateFields.join(", ") || "(tidak ada)"}`);
+  console.info(`[debug] Data JobPosting JSON-LD: ${findJobPostings(html).length > 0}; data __NEXT_DATA__: ${/<script\b[^>]*id=["']__NEXT_DATA__["']/i.test(html)}; field tanggal terdeteksi: ${dateFields.join(", ") || "(tidak ada)"}`);
   return html;
 }
 

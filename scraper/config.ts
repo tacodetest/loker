@@ -1,9 +1,15 @@
 export const DATE_RANGE_DAYS = 7;
-export const MAX_PAGES_PER_LINK = 3;
+export const MAX_LINKS_PER_SEARCH = 100;
+export const MAX_PAGES_PER_LINK = 4;
 export const DETAIL_PER_RUN = 100;
+export const DETAIL_PER_RUN_JOBSTREET = 30;
 export const MAX_DETAIL_ATTEMPTS = 3;
 export const DELAY_MIN_MS = 5000;
 export const DELAY_MAX_MS = 8000;
+export const JOBSTREET_DELAY_MIN_MS = 15_000;
+export const JOBSTREET_DELAY_MAX_MS = 30_000;
 export const CONCURRENCY = 1;
 export const DESCRIPTION_MAX_CHARS = 8000;
 export const PAGE_TIMEOUT_MS = 30_000;
+export const GLINTS_SCROLL_TIMEOUT_MS = 120_000;
+export const MAX_FAILED_HTML_PER_RUN = 5;

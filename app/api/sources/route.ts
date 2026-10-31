@@ -4,6 +4,7 @@ import { z } from "zod";
 import { getRequestUser } from "@/lib/auth";
 import { getSourceUrl } from "@/lib/source-url";
 import { db } from "@/lib/supabase";
+import { formatCooldownMessage, getJobStreetCooldownUntil } from "@/scraper/lib/rate-limit";
 
 const noStore = { headers: { "Cache-Control": "no-store, max-age=0" } };
 
@@ -77,7 +78,7 @@ export async function GET(request: Request) {
   try {
     const supabase = db();
     const { data: sources, error } = await supabase.from("saved_links")
-      .select("id, url, source, is_active, last_scraped_at, last_status, last_error")
+      .select("id, url, source, is_active, last_scraped_at, last_success_at, last_status, last_error")
       .eq("owner_id", user.id)
       .order("created_at", { ascending: false });
     if (error) throw new Error(error.message);
@@ -159,13 +160,24 @@ export async function PATCH(request: Request) {
   try {
     const url = sourceUrl.url.toString();
     const { data: savedLink, error } = await db().from("saved_links")
-      .select("id")
+      .select("id, source, last_status, last_scraped_at, last_error")
       .eq("owner_id", user.id)
       .eq("url", url)
       .eq("is_active", true)
       .maybeSingle();
     if (error) throw new Error(error.message);
     if (!savedLink) return NextResponse.json({ error: "Tautan aktif tidak ditemukan di akun ini." }, { status: 404, ...noStore });
+
+    const cooldownUntil = savedLink.source === "jobstreet"
+      ? getJobStreetCooldownUntil(savedLink.last_status, savedLink.last_scraped_at, savedLink.last_error)
+      : null;
+    if (cooldownUntil) {
+      return NextResponse.json({
+        ok: true,
+        skipped: true,
+        message: formatCooldownMessage(cooldownUntil),
+      }, noStore);
+    }
 
     const started = runLocalScrape(user.id, url)
       || (await dispatchImmediateScrape(user.id, url)) === true;
