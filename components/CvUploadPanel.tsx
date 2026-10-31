@@ -15,6 +15,8 @@ type CvAnalysis = {
   method: "ai";
   analyzedAt: string;
   keywords: string[];
+  eligibleJobsCount: number;
+  candidateJobsCount: number;
   matches: {
     job: {
       job_url: string;
@@ -38,6 +40,8 @@ const cvAnalysisSchema = z.object({
   method: z.literal("ai"),
   analyzedAt: z.string(),
   keywords: z.array(z.string()),
+  eligibleJobsCount: z.number().int().nonnegative(),
+  candidateJobsCount: z.number().int().nonnegative(),
   matches: z.array(
     z.object({
       job: z.object({
@@ -469,8 +473,8 @@ export default function CvUploadPanel({
             <div>
               <h2 id="cv-match-title">Kecocokan dengan lowongan</h2>
               <p>
-                Sistem memilih maksimal 20 lowongan aktif yang paling relevan
-                untuk dianalisis Gemini. Hasil tetap dinilai oleh AI.
+                Analisis hanya memakai lowongan unik dengan tanggal posting diketahui dalam 7 hari
+                terakhir. Sistem memilih maksimal 20 kandidat paling relevan untuk dinilai Gemini.
               </p>
             </div>
             <button
@@ -512,6 +516,11 @@ export default function CvUploadPanel({
                   timeStyle: "short",
                 }).format(new Date(analysis.analyzedAt))}
                 . Hasil tetap tersedia sampai Anda menjalankan analisis ulang.
+              </p>
+              <p className="cv-score-disclaimer">
+                Analisis menggunakan {analysis.eligibleJobsCount} lowongan unik dengan tanggal posting
+                diketahui dalam 7 hari terakhir. Gemini menilai maksimal {analysis.candidateJobsCount} kandidat
+                teratas; lowongan duplikat, lebih lama, atau tanpa tanggal tidak disertakan.
               </p>
               <div className="cv-keywords">
                 <strong>Kata kunci CV</strong>

@@ -16,7 +16,7 @@ import {
   getRateLimitRetryAt,
   parseRetryAfter,
 } from "./rate-limit";
-import { isPostedWithinWindow } from "../../lib/job-freshness";
+import { getUniqueRecentJobs, isPostedWithinWindow } from "../../lib/job-freshness";
 
 test("daftar hanya menerima tanggal posting yang diketahui dan berada dalam tujuh hari", () => {
   const now = new Date("2026-10-31T12:00:00.000Z");
@@ -27,6 +27,19 @@ test("daftar hanya menerima tanggal posting yang diketahui dan berada dalam tuju
   assert.equal(isPostedWithinWindow("2026-10-31T12:00:01.000Z", cutoff, now), false);
   assert.equal(isPostedWithinWindow(null, cutoff, now), false);
   assert.equal(isPostedWithinWindow("tanggal tidak valid", cutoff, now), false);
+});
+
+test("analisis CV hanya menerima lowongan unik yang tanggalnya diketahui dan masih baru", () => {
+  const now = new Date("2026-10-31T12:00:00.000Z");
+  const jobs = [
+    { job_url: "https://glints.com/jobs/baru", posted_time: "2026-10-30T12:00:00.000Z" },
+    { job_url: "https://glints.com/jobs/baru", posted_time: "2026-10-30T12:00:00.000Z" },
+    { job_url: "https://glints.com/jobs/lama", posted_time: "2026-10-20T12:00:00.000Z" },
+    { job_url: "https://glints.com/jobs/tanpa-tanggal", posted_time: null },
+    { job_url: "https://glints.com/jobs/masa-depan", posted_time: "2026-11-01T12:00:00.000Z" },
+  ];
+
+  assert.deepEqual(getUniqueRecentJobs(jobs, now, 7), [jobs[0]]);
 });
 
 test("source detection accepts Glints and rejects other or lookalike domains", () => {

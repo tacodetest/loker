@@ -1,7 +1,7 @@
 import "server-only";
 import { connection } from "next/server";
 import type { AppUserId } from "./auth";
-import { isPostedWithinWindow } from "./job-freshness";
+import { getUniqueRecentJobs, isPostedWithinWindow } from "./job-freshness";
 import { db } from "./supabase";
 
 export type JobCard = {
@@ -220,9 +220,7 @@ export async function getJobDetail(jobUrl: string, ownerId: AppUserId) {
 
 export async function getRecentJobsForMatching(ownerId: AppUserId) {
   const jobs = await getRecentlyScrapedJobs(ownerId);
-  const now = new Date();
-  const cutoff = new Date(now.getTime() - MAX_POST_AGE_DAYS * 86_400_000);
-  return jobs.filter((job) => isRecentJob(job, cutoff, now));
+  return getUniqueRecentJobs(jobs, new Date(), MAX_POST_AGE_DAYS);
 }
 
 export async function getRecentJobStats(ownerId: AppUserId) {
